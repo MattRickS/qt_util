@@ -7,20 +7,19 @@ class HeaderView(QtWidgets.QHeaderView):
     # TODO: Hijack the model data for the actual columns to replace text for
     # collapsed columns with '...'
     BTN_MARGIN = 2
-    BTN_WIDTH = 16
+    BTN_SIZE = 16
 
     def __init__(self, orientation, parent=None):
         super(HeaderView, self).__init__(orientation, parent)
         self._groups = {}
 
-    # def mouseMoveEvent(self, event):
-    #     super(HeaderView, self).mouseMoveEvent(event)
-    #     logical = self.logicalIndexAt(event.pos())
-    #     if logical >= 0:
-    #         painter = QtGui.QPainter(self.viewport())
-    #         rect = self.get_section_rect(logical)
-    #         print('Repainting')
-    #         self.paintSection(painter, rect, logical)
+    def mouseMoveEvent(self, event):
+        super(HeaderView, self).mouseMoveEvent(event)
+        logical = self.logicalIndexAt(event.pos())
+        if logical >= 0 and self.has_button(logical):
+            # Update the section to ensure the button highlights are enabled
+            # when the mouse travels over
+            self.updateSection(logical)
 
     def mousePressEvent(self, event):
         # type: (QtCore.QEvent) -> None
@@ -31,6 +30,18 @@ class HeaderView(QtWidgets.QHeaderView):
             self.set_group_collapsed(name, not data['collapsed'])
             return
         super(HeaderView, self).mousePressEvent(event)
+
+    def has_button(self, logical_index):
+        # type: (int) -> bool
+        grp = self._get_group_data(logical_index)
+        return grp is None or logical_index == grp[1]['indexes'][-1]
+
+    def sectionSizeFromContents(self, logical_index):
+        size = super(HeaderView, self).sectionSizeFromContents(logical_index)
+        if self.orientation() == QtCore.Qt.Vertical:
+            size = QtCore.QSize(size.width() + self.BTN_SIZE + self.BTN_MARGIN * 2,
+                                size.height())
+        return size
 
     def paintSection(self, painter, rect, logical_index):
         # type: (QtGui.QPainter, QtCore.QRect, int) -> None
@@ -54,12 +65,15 @@ class HeaderView(QtWidgets.QHeaderView):
                 btn_opt = QtWidgets.QStyleOptionButton()
                 btn.initStyleOption(btn_opt)
                 btn_opt.rect = self._get_button_rect(rect)
-                btn_opt.text = '>' if self.is_collapsed(logical_index) else '<'
+                horizontal = self.orientation() == QtCore.Qt.Horizontal
+                btn_opt.text = (('>' if horizontal else 'v')
+                                if self.is_collapsed(logical_index) else
+                                ('<' if horizontal else '^'))
                 if data['collapsed']:
                     opt.textAlignment = QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter
                     opt.text = name
             # Set the background colour for all the grouped column headers
-            opt.palette.setColor(QtGui.QPalette.All, QtGui.QPalette.Button, data['colour'])
+            opt.palette.setColor(QtGui.QPalette.All, QtGui.QPalette.Background, data['colour'])
 
         # Update the state based on the current mouse state in relation to the
         # section rect
@@ -77,11 +91,23 @@ class HeaderView(QtWidgets.QHeaderView):
 
         # TODO: Should only modify the brush origin if a custom brush is given
         # for the current section
-        old_brush_origin = painter.brushOrigin()
-        painter.setBrushOrigin(opt.rect.topLeft())
-        style.drawControl(QtWidgets.QStyle.CE_HeaderSection, opt, painter, self)
+        # old_brush_origin = painter.brushOrigin()
+        # painter.setBrushOrigin(opt.rect.topLeft())
+        # style.drawControl(QtWidgets.QStyle.CE_HeaderSection, opt, painter, self)
+        painter.setBrush(opt.palette.background())
+        painter.drawRect(rect)
+        # painter.fillRect(rect, opt.palette.background())
+        # painter.drawLine(rect.topLeft(), rect.bottomLeft())
+        # painter.drawLine(rect.topRight(), rect.bottomRight())
+        text_rect = style.subElementRect(QtWidgets.QStyle.SE_HeaderLabel, opt)
+        opt.rect = text_rect.adjusted(0, 0, -(self.BTN_SIZE + self.BTN_MARGIN * 2), 0)
         style.drawControl(QtWidgets.QStyle.CE_HeaderLabel, opt, painter, self)
-        painter.setBrushOrigin(old_brush_origin)
+        # painter.setBrushOrigin(old_brush_origin)
+
+        # WIP: sortIndicator drawing
+        if opt.sortIndicator:
+            opt.rect = style.subElementRect(QtWidgets.QStyle.SE_HeaderArrow, opt)
+            style.proxy().drawPrimitive(QtWidgets.QStyle.PE_IndicatorHeaderArrow, opt, painter)
 
         if btn is not None:
             style.drawControl(QtWidgets.QStyle.CE_PushButton, btn_opt, painter, btn)
@@ -263,7 +289,7 @@ class HeaderView(QtWidgets.QHeaderView):
             'colour': colour or QtGui.QColor('red'),
             'indexes': logical,
             'collapsed': collapsed,
-            'width': self.sectionSize(logical[-1]),
+            'size': self.sectionSize(logical[-1]),
         }
 
         # Expand / collapse if any of the indexes are collapsed
@@ -284,13 +310,16 @@ class HeaderView(QtWidgets.QHeaderView):
             # [ margin text margin btn margin ]
             opt = QtWidgets.QStyleOptionHeader()
             self.initStyleOption(opt)
-            width = opt.fontMetrics.width(name)
-            width += self.BTN_WIDTH + self.BTN_MARGIN * 3
+            # TODO: Handle width for vertical headers so that the collapsed name is visible
+            size = ((opt.fontMetrics.width(name) + self.style().pixelMetric(QtWidgets.QStyle.PM_HeaderMargin, opt) * 2)
+                    if self.orientation() == QtCore.Qt.Horizontal else
+                    opt.fontMetrics.height())
+            size += self.BTN_SIZE + self.BTN_MARGIN * 2
             # Save the width before replacing it so it can be restored
-            data['width'] = self.sectionSize(last)
+            data['size'] = self.sectionSize(last)
         else:
-            width = data['width']
-        self.resizeSection(last, width)
+            size = data['size']
+        self.resizeSection(last, size)
 
         # Toggle the visibility of the columns
         for index in indexes[:-1]:
@@ -308,7 +337,7 @@ class HeaderView(QtWidgets.QHeaderView):
         # type: (QtCore.QRect) -> QtCore.QRect
         pos = section_rect.topRight()
         btn_height = section_rect.height() - self.BTN_MARGIN * 2
-        btn_width = min(self.BTN_WIDTH, section_rect.width() - self.BTN_MARGIN * 2)
+        btn_width = min(self.BTN_SIZE, section_rect.width() - self.BTN_MARGIN * 2)
         return QtCore.QRect(
             pos.x() - self.BTN_MARGIN - btn_width,
             pos.y() + self.BTN_MARGIN,
@@ -385,12 +414,8 @@ if __name__ == '__main__':
             if role == QtCore.Qt.DisplayRole:
                 if orientation == QtCore.Qt.Horizontal:
                     return self.columns[section]
-                # else:
-                #     return 'banana'
-            elif role == QtCore.Qt.BackgroundRole:
-                return QtGui.QColor('red')
-            elif role == QtCore.Qt.ForegroundRole:
-                return QtGui.QColor('blue')
+                else:
+                    return str(section)
 
         def index(self, row, column, parent=QtCore.QModelIndex()):
             # type: (int, int, QtCore.QModelIndex) -> QtCore.QModelIndex
@@ -404,11 +429,6 @@ if __name__ == '__main__':
             # type: (QtCore.QModelIndex) -> int
             return len(self._entities)
 
-        def setData(self, index, value, role=QtCore.Qt.EditRole):
-            # type: (QtCore.QModelIndex, object, int) -> bool
-            if not index.isValid():
-                return False
-
     app = QtWidgets.QApplication(sys.argv)
 
     attrs = ('name', 'gender', 'age', 'race')
@@ -416,14 +436,23 @@ if __name__ == '__main__':
 
     model = EntityModel(attrs, [
         Entity('nuala', 'female', 30, 'human'),
-        Entity('matthew', 'male', 30, 'human')
+        Entity('matthew', 'male', 30, 'human'),
+        Entity('ray', 'male', 30, 'human'),
+        Entity('mel', 'male', 31, 'human'),
     ])
+    # TODO: Enable sorting on view
+    # proxy = QtCore.QSortFilterProxyModel()
+    # proxy.setSourceModel(model)
     view = QtWidgets.QTableView()
     header = HeaderView(QtCore.Qt.Horizontal, view)
     view.setHorizontalHeader(header)
+    vheader = HeaderView(QtCore.Qt.Vertical, view)
+    # vheader.setFixedWidth(50)
+    view.setVerticalHeader(vheader)
     view.setModel(model)
+    # view.setSortingEnabled(True)
     header.set_collapsible_group('Character', [0, 2, 3], collapsed=True)
-    print(header._groups)
+    vheader.set_collapsible_group('Half', [1, 2], collapsed=False)
     view.show()
 
     app.exec_()

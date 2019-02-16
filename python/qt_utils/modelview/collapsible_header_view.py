@@ -31,18 +31,6 @@ class HeaderView(QtWidgets.QHeaderView):
             return
         super(HeaderView, self).mousePressEvent(event)
 
-    def has_button(self, logical_index):
-        # type: (int) -> bool
-        grp = self._get_group_data(logical_index)
-        return grp is None or logical_index == grp[1]['indexes'][-1]
-
-    def sectionSizeFromContents(self, logical_index):
-        size = super(HeaderView, self).sectionSizeFromContents(logical_index)
-        if self.orientation() == QtCore.Qt.Vertical:
-            size = QtCore.QSize(size.width() + self.BTN_SIZE + self.BTN_MARGIN * 2,
-                                size.height())
-        return size
-
     def paintSection(self, painter, rect, logical_index):
         # type: (QtGui.QPainter, QtCore.QRect, int) -> None
         if not rect.isValid():
@@ -58,7 +46,7 @@ class HeaderView(QtWidgets.QHeaderView):
         btn_opt = None
         btn = None
         grp = self._get_group_data(logical_index)
-        if grp:
+        if grp is not None:
             name, data = grp
             if data['indexes'][-1] == logical_index:
                 btn = QtWidgets.QPushButton()
@@ -67,7 +55,7 @@ class HeaderView(QtWidgets.QHeaderView):
                 btn_opt.rect = self._get_button_rect(rect)
                 horizontal = self.orientation() == QtCore.Qt.Horizontal
                 btn_opt.text = (('>' if horizontal else 'v')
-                                if self.is_collapsed(logical_index) else
+                                if data['collapsed'] else
                                 ('<' if horizontal else '^'))
                 if data['collapsed']:
                     opt.textAlignment = QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter
@@ -89,20 +77,18 @@ class HeaderView(QtWidgets.QHeaderView):
             else:
                 opt.state |= QtWidgets.QStyle.State_MouseOver
 
-        # TODO: Should only modify the brush origin if a custom brush is given
-        # for the current section
-        # old_brush_origin = painter.brushOrigin()
-        # painter.setBrushOrigin(opt.rect.topLeft())
         # style.drawControl(QtWidgets.QStyle.CE_HeaderSection, opt, painter, self)
         painter.setBrush(opt.palette.background())
         painter.drawRect(rect)
-        # painter.fillRect(rect, opt.palette.background())
-        # painter.drawLine(rect.topLeft(), rect.bottomLeft())
-        # painter.drawLine(rect.topRight(), rect.bottomRight())
-        text_rect = style.subElementRect(QtWidgets.QStyle.SE_HeaderLabel, opt)
-        opt.rect = text_rect.adjusted(0, 0, -(self.BTN_SIZE + self.BTN_MARGIN * 2), 0)
+
+        # Horizontal header labels look wrong if not equally aligned - only
+        # modify the header for columns with a button
+        # Vertical header labels look wrong if not aligned horizontally, so all
+        # columns in a group should share the indent, not just the button column
+        if btn is not None or (self.orientation() == QtCore.Qt.Vertical and grp is not None):
+            text_rect = style.subElementRect(QtWidgets.QStyle.SE_HeaderLabel, opt)
+            opt.rect = text_rect.adjusted(0, 0, -(self.BTN_SIZE + self.BTN_MARGIN * 2), 0)
         style.drawControl(QtWidgets.QStyle.CE_HeaderLabel, opt, painter, self)
-        # painter.setBrushOrigin(old_brush_origin)
 
         # WIP: sortIndicator drawing
         if opt.sortIndicator:
@@ -113,6 +99,64 @@ class HeaderView(QtWidgets.QHeaderView):
             style.drawControl(QtWidgets.QStyle.CE_PushButton, btn_opt, painter, btn)
 
         painter.restore()
+
+    def sectionSizeFromContents(self, logical_index):
+        # type: (int) -> QtCore.QSize
+        size = super(HeaderView, self).sectionSizeFromContents(logical_index)
+        grp = self._get_group_data(logical_index)
+        if grp is not None:
+            name, data = grp
+            # If the index has a button, modify the size
+            if data['indexes'][-1] == logical_index:
+                opt = QtWidgets.QStyleOptionHeader()
+                self.initStyleOption(opt)
+                # Use the group name if collapsed, or header label if not
+                if not data['collapsed']:
+                    name = self.model().headerData(logical_index,
+                                                   self.orientation(),
+                                                   QtCore.Qt.DisplayRole)
+                margins = self.style().pixelMetric(QtWidgets.QStyle.PM_HeaderMargin, opt) * 2
+                text_width = max(size.width(), opt.fontMetrics.width(name))
+                size = QtCore.QSize(text_width + self.BTN_SIZE + self.BTN_MARGIN * 2 + margins,
+                                    size.height())
+        return size
+
+    def add_group(self, name, indexes, collapsed=False, colour=None):
+        # type: (str, list[int], bool, QtGui.QColor) -> None
+        # Ensure each index is only contained in one group
+        for group_name, group_data in self._groups.items():
+            overlap = set(group_data['indexes']) & set(indexes)
+            if overlap:
+                self._groups[group_name] = [i for i in indexes if i not in indexes]
+
+        # Ensure all visual indexes are in order
+        visuals = sorted(self.visualIndex(idx) for idx in indexes)
+        logical_in_visual_order = []
+        minimum = visuals[0]
+        for idx, visual_index in enumerate(visuals):
+            ordered_visual_index = minimum + idx
+            if visual_index != ordered_visual_index:
+                self.moveSection(visual_index, ordered_visual_index)
+            logical_in_visual_order.append(self.logicalIndex(ordered_visual_index))
+
+        btn_index = logical_in_visual_order[-1]
+        self._groups[name] = {
+            'colour': colour or QtGui.QColor('red'),
+            'indexes': logical_in_visual_order,
+            'collapsed': collapsed,
+            'size': self.sectionSize(btn_index),
+        }
+
+        # Expand / collapse if any of the indexes are collapsed
+        self.set_group_collapsed(name, collapsed)
+
+        # TODO: Replace hack fix
+        # If not collapsing, the size is the same and nothing is recalculated,
+        # which prevents the custom header size (including button) being applied
+        if not collapsed:
+            hidden_state = self.isSectionHidden(btn_index)
+            self.setSectionHidden(btn_index, not hidden_state)
+            self.setSectionHidden(btn_index, hidden_state)
 
     def get_button_rect(self, logical_index):
         # type: (int) -> QtCore.QRect|None
@@ -254,46 +298,31 @@ class HeaderView(QtWidgets.QHeaderView):
 
         return opt
 
-    def is_collapsed(self, logical_index):
+    def has_button(self, logical_index):
+        # type: (int) -> bool
+        grp = self._get_group_data(logical_index)
+        return grp is None or logical_index == grp[1]['indexes'][-1]
+
+    def is_collapsed_group(self, name):
+        # type: (str) -> bool|None
+        return self._groups.get(name, {}).get('collapsed')
+
+    def is_collapsed_index(self, logical_index):
         # type: (int) -> bool
         for data in self._groups.values():
             if logical_index in data['indexes']:
                 return data['collapsed']
         return False
 
+    def is_grouped(self, logical_index):
+        # type: (int) -> bool
+        return self._get_group_data(logical_index) is not None
+
     def remove_group(self, name):
         # type: (str) -> bool
         removed = self.set_group_collapsed(name, False)
         self._groups.pop(name, None)
         return removed
-
-    def set_collapsible_group(self, name, indexes, collapsed=False, colour=None):
-        # type: (str, list[int], bool, QtGui.QColor) -> None
-        # Ensure each index is only contained in one group
-        for group_name, group_data in self._groups.items():
-            overlap = set(group_data['indexes']) & set(indexes)
-            if overlap:
-                self._groups[group_name] = [i for i in indexes if i not in indexes]
-
-        # Ensure all visual indexes are in order
-        visuals = sorted(self.visualIndex(idx) for idx in indexes)
-        logical = []
-        minimum = visuals[0]
-        for idx, visual_index in enumerate(visuals):
-            ordered_visual_index = minimum + idx
-            if visual_index != ordered_visual_index:
-                self.moveSection(visual_index, ordered_visual_index)
-            logical.append(self.logicalIndex(ordered_visual_index))
-
-        self._groups[name] = {
-            'colour': colour or QtGui.QColor('red'),
-            'indexes': logical,
-            'collapsed': collapsed,
-            'size': self.sectionSize(logical[-1]),
-        }
-
-        # Expand / collapse if any of the indexes are collapsed
-        self.set_group_collapsed(name, collapsed)
 
     def set_group_collapsed(self, name, collapsed):
         # type: (str, bool) -> bool
@@ -303,23 +332,22 @@ class HeaderView(QtWidgets.QHeaderView):
         # Hide/Show all following indexes
         data['collapsed'] = collapsed
         indexes = data['indexes']
-        last = indexes[-1]
+        btn_index = indexes[-1]
 
         # Font metrics for the name
         if collapsed:
-            # [ margin text margin btn margin ]
+            # [ margin text margin btn_margin btn btn_margin ]
             opt = QtWidgets.QStyleOptionHeader()
             self.initStyleOption(opt)
-            # TODO: Handle width for vertical headers so that the collapsed name is visible
             size = ((opt.fontMetrics.width(name) + self.style().pixelMetric(QtWidgets.QStyle.PM_HeaderMargin, opt) * 2)
                     if self.orientation() == QtCore.Qt.Horizontal else
                     opt.fontMetrics.height())
             size += self.BTN_SIZE + self.BTN_MARGIN * 2
             # Save the width before replacing it so it can be restored
-            data['size'] = self.sectionSize(last)
+            data['size'] = self.sectionSize(btn_index)
         else:
             size = data['size']
-        self.resizeSection(last, size)
+        self.resizeSection(btn_index, size)
 
         # Toggle the visibility of the columns
         for index in indexes[:-1]:
@@ -447,13 +475,14 @@ if __name__ == '__main__':
     header = HeaderView(QtCore.Qt.Horizontal, view)
     view.setHorizontalHeader(header)
     vheader = HeaderView(QtCore.Qt.Vertical, view)
-    # vheader.setFixedWidth(50)
     view.setVerticalHeader(vheader)
     view.setModel(model)
     # view.setSortingEnabled(True)
-    header.set_collapsible_group('Character', [0, 2, 3], collapsed=True)
-    vheader.set_collapsible_group('Half', [1, 2], collapsed=False)
+    header.add_group('Character', [0, 2, 3], collapsed=False)
+    vheader.add_group('Half', [1, 2], collapsed=False)
     view.show()
+    view.resizeColumnsToContents()
+    view.resizeRowsToContents()
 
     app.exec_()
     sys.exit()

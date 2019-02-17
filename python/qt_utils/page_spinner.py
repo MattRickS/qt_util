@@ -12,7 +12,7 @@ class PageStyle(QtWidgets.QCommonStyle):
         button_opt.rect = self.subControlRect(self.CC_SpinBox, option, sub_control)
         if not (option.activeSubControls & sub_control):
             button_opt.state &= ~(self.State_MouseOver | self.State_On | self.State_Sunken)
-        self.drawPrimitive(self.PE_FrameButtonBevel, button_opt, painter)
+        self.drawPrimitive(self.PE_PanelButtonBevel, button_opt, painter)
 
         # Icon
         button_opt.rect.adjust(3, 3, -3, -3)

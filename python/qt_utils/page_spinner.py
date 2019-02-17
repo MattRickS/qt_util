@@ -71,8 +71,8 @@ class PageSpinner(QtWidgets.QWidget):
         self._spinner = QtWidgets.QSpinBox()
         self._spinner.setAlignment(QtCore.Qt.AlignCenter)
         self._spinner.setStyle(PageStyle())
-        self._spinner.setSizePolicy(QtWidgets.QSizePolicy.Expanding,
-                                    QtWidgets.QSizePolicy.Expanding)
+        self._spinner.setSizePolicy(QtWidgets.QSizePolicy.Preferred,
+                                    QtWidgets.QSizePolicy.Preferred)
 
         # Layout
         layout = QtWidgets.QVBoxLayout(self)

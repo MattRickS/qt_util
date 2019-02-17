@@ -2,6 +2,8 @@ from PySide2 import QtCore, QtGui, QtWidgets
 
 
 class PageStyle(QtWidgets.QCommonStyle):
+    BUTTON_WIDTH = 16
+
     def draw_spin_box_button(self, sub_control, option, painter):
         painter.save()
 
@@ -33,23 +35,23 @@ class PageStyle(QtWidgets.QCommonStyle):
     def subControlRect(self, control, option, sub_control, widget=None):
         if control == self.CC_SpinBox:
             frame_width = self.pixelMetric(self.PM_DefaultFrameWidth, option, widget)
-            button_width = 16
 
             if sub_control == self.SC_SpinBoxFrame:
                 return option.rect
             elif sub_control == self.SC_SpinBoxEditField:
-                return option.rect.adjusted(+button_width, +frame_width,
-                                            -button_width, -frame_width)
+                return option.rect.adjusted(self.BUTTON_WIDTH, frame_width,
+                                            -self.BUTTON_WIDTH, -frame_width)
             elif sub_control == self.SC_SpinBoxDown:
                 return self.visualRect(option.direction, option.rect,
-                                       QtCore.QRect(option.rect.x(), option.rect.y(),
-                                                    button_width,
+                                       QtCore.QRect(option.rect.x(),
+                                                    option.rect.y(),
+                                                    self.BUTTON_WIDTH,
                                                     option.rect.height()))
             elif sub_control == self.SC_SpinBoxUp:
                 return self.visualRect(option.direction, option.rect,
-                                       QtCore.QRect(option.rect.right() - button_width,
+                                       QtCore.QRect(option.rect.right() - self.BUTTON_WIDTH,
                                                     option.rect.y(),
-                                                    button_width,
+                                                    self.BUTTON_WIDTH,
                                                     option.rect.height()))
             else:
                 return QtCore.QRect()
@@ -69,6 +71,8 @@ class PageSpinner(QtWidgets.QWidget):
         self._spinner = QtWidgets.QSpinBox()
         self._spinner.setAlignment(QtCore.Qt.AlignCenter)
         self._spinner.setStyle(PageStyle())
+        self._spinner.setSizePolicy(QtWidgets.QSizePolicy.Expanding,
+                                    QtWidgets.QSizePolicy.Expanding)
 
         # Layout
         layout = QtWidgets.QVBoxLayout(self)
@@ -103,6 +107,12 @@ class PageSpinner(QtWidgets.QWidget):
         self._spinner.setMaximum(max_page)
         self._spinner.setSuffix(' / {}'.format(max_page))
         self._spinner.setMinimum(1 if max_page > 0 else 0)
+        opt = QtWidgets.QStyleOptionSpinBox()
+        opt.initFrom(self._spinner)
+        margin = self.style().pixelMetric(QtWidgets.QStyle.PM_DefaultFrameWidth, opt, self)
+        text_width = self.fontMetrics().width('{} / {}'.format(max_page, max_page))
+        width = text_width + PageStyle.BUTTON_WIDTH * 2 + margin * 4
+        self.setMinimumWidth(width)
 
 
 if __name__ == '__main__':
@@ -117,7 +127,7 @@ if __name__ == '__main__':
     ps.set_max_page(5)
     ps.show()
 
-    pages = [0, 5, 10]
+    pages = [0, 5, 100]
     btn = QtWidgets.QPushButton('Toggle')
     btn.clicked.connect(lambda: ps.set_max_page(pages[(pages.index(ps.max_page) + 1) % len(pages)]))
     btn.show()

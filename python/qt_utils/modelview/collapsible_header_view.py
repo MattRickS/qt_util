@@ -3,18 +3,18 @@ from itertools import groupby, count
 from PySide2 import QtCore, QtGui, QtWidgets
 
 
-class HeaderView(QtWidgets.QHeaderView):
+class CollapsibleHeaderView(QtWidgets.QHeaderView):
     # TODO: Hijack the model data for the actual columns to replace text for
     # collapsed columns with '...'
     BTN_MARGIN = 2
     BTN_SIZE = 16
 
     def __init__(self, orientation, parent=None):
-        super(HeaderView, self).__init__(orientation, parent)
+        super(CollapsibleHeaderView, self).__init__(orientation, parent)
         self._groups = {}
 
     def mouseMoveEvent(self, event):
-        super(HeaderView, self).mouseMoveEvent(event)
+        super(CollapsibleHeaderView, self).mouseMoveEvent(event)
         logical = self.logicalIndexAt(event.pos())
         if logical >= 0 and self.has_button(logical):
             # Update the section to ensure the button highlights are enabled
@@ -29,7 +29,7 @@ class HeaderView(QtWidgets.QHeaderView):
             name, data = self._get_group_data(logical)
             self.set_group_collapsed(name, not data['collapsed'])
             return
-        super(HeaderView, self).mousePressEvent(event)
+        super(CollapsibleHeaderView, self).mousePressEvent(event)
 
     def paintSection(self, painter, rect, logical_index):
         # type: (QtGui.QPainter, QtCore.QRect, int) -> None
@@ -102,7 +102,7 @@ class HeaderView(QtWidgets.QHeaderView):
 
     def sectionSizeFromContents(self, logical_index):
         # type: (int) -> QtCore.QSize
-        size = super(HeaderView, self).sectionSizeFromContents(logical_index)
+        size = super(CollapsibleHeaderView, self).sectionSizeFromContents(logical_index)
         grp = self._get_group_data(logical_index)
         if grp is not None:
             name, data = grp
@@ -169,19 +169,11 @@ class HeaderView(QtWidgets.QHeaderView):
     def get_section_rect(self, logical_index):
         # type: (int) -> QtCore.QRect
         # Accumulate the offset from the
-        distance = self.offset()
-        for visual_index in range(self.count()):
-            logical = self.logicalIndex(visual_index)
-            if self.isSectionHidden(logical):
-                continue
-            if logical == logical_index:
-                size = self.sectionSize(logical)
-                if self.orientation() == QtCore.Qt.Horizontal:
-                    rect = QtCore.QRect(distance, 0, size, self.height())
-                else:
-                    rect = QtCore.QRect(0, distance, self.width(), size)
-                return rect
-            distance += self.sectionSize(logical)
+        pos = self.sectionViewportPosition(logical_index)
+        if self.orientation() == QtCore.Qt.Horizontal:
+            return QtCore.QRect(pos, 0, self.sectionSize(logical_index), self.height())
+        else:
+            return QtCore.QRect(0, pos, self.width(), self.sectionSize(logical_index))
 
     def get_section_style_option(self, logical_index):
         # type: (int) -> QtWidgets.QStyleOptionHeader
@@ -472,9 +464,9 @@ if __name__ == '__main__':
     # proxy = QtCore.QSortFilterProxyModel()
     # proxy.setSourceModel(model)
     view = QtWidgets.QTableView()
-    header = HeaderView(QtCore.Qt.Horizontal, view)
+    header = CollapsibleHeaderView(QtCore.Qt.Horizontal, view)
     view.setHorizontalHeader(header)
-    vheader = HeaderView(QtCore.Qt.Vertical, view)
+    vheader = CollapsibleHeaderView(QtCore.Qt.Vertical, view)
     view.setVerticalHeader(vheader)
     view.setModel(model)
     # view.setSortingEnabled(True)

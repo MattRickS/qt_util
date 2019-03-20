@@ -216,6 +216,7 @@ class HeaderDelegateView(QtWidgets.QHeaderView):
     def __init__(self, orientation, parent=None):
         super(HeaderDelegateView, self).__init__(orientation, parent)
         self._editors = {}
+        self.__currentlyCommittingEditor = None
 
         self.setSectionsClickable(True)
         self.setHighlightSections(True)
@@ -247,22 +248,19 @@ class HeaderDelegateView(QtWidgets.QHeaderView):
                   self.itemDelegateForRow)
         return method(index) or self.itemDelegate()
 
-    # TODO: Convert - commitData is explicitly mentioned in editing
-    # void QAbstractItemView::commitData(QWidget *editor)
-    # {
-    #     Q_D(QAbstractItemView);
-    #     if (!editor || !d->itemDelegate || d->currentlyCommittingEditor)
-    #         return;
-    #     QModelIndex index = d->indexForEditor(editor);
-    #     if (!index.isValid())
-    #         return;
-    #     d->currentlyCommittingEditor = editor;
-    #     QAbstractItemDelegate *delegate = d->delegateForIndex(index);
-    #     editor->removeEventFilter(delegate);
-    #     delegate->setModelData(editor, d->model, index);
-    #     editor->installEventFilter(delegate);
-    #     d->currentlyCommittingEditor = 0;
-    # }
+    def commitData(self, editor):
+        if not editor or not self.itemDelegate() or self.__currentlyCommittingEditor:
+            return
+        index = self.indexForEditor(editor)
+        if index is None:
+            return
+        self.__currentlyCommittingEditor = editor
+        delegate = self.delegateForIndex(index)
+        editor.removeEventFilter(delegate)
+        index = HeaderModelIndex(self.orientation(), index, self.model())
+        delegate.setModelData(editor, self.model(), index)
+        editor.installEventFilter(delegate)
+        self.__currentlyCommittingEditor = None
 
     # TODO: Is this required? It seems to work without it (ie, removeEditor is
     # called anyway)
@@ -282,6 +280,7 @@ class HeaderDelegateView(QtWidgets.QHeaderView):
 
     def indexForEditor(self, editor):
         # type: (QtWidgets.QWidget) -> int|None
+        # TODO: This should return a HeaderModelIndex and everything update accordingly
         for k, v in self._editors.items():
             if editor == v:
                 return k

@@ -1,12 +1,251 @@
 from PySide2 import QtCore, QtGui, QtWidgets
 
 
+def qSmartMinSizeWidget(widget):
+    return qSmartMinSize(
+        widget.sizeHint(),
+        widget.minimumSizeHint(),
+        widget.minimumSize(),
+        widget.maximumSize(),
+        widget.sizePolicy(),
+    )
+
+
+def qSmartMinSize(sizeHint, minSizeHint, minSize, maxSize, sizePolicy):
+    s = QtCore.QSize(0, 0)
+    if sizePolicy.horizontalPolicy() != QtWidgets.QSizePolicy.Ignored:
+        if sizePolicy.horizontalPolicy() & QtWidgets.QSizePolicy.ShrinkFlag:
+            s.setWidth(minSizeHint.width())
+        else:
+            s.setWidth(max(sizeHint.width(), minSizeHint.width()))
+    if sizePolicy.verticalPolicy() != QtWidgets.QSizePolicy.Ignored:
+        if sizePolicy.verticalPolicy() & QtWidgets.QSizePolicy.ShrinkFlag:
+            s.setHeight(minSizeHint.height())
+        else:
+            s.setHeight(max(sizeHint.height(), minSizeHint.height()))
+
+    s = s.boundedTo(maxSize)
+    if minSize.width() > 0:
+        s.setWidth(minSize.width())
+    if minSize.height() > 0:
+        s.setHeight(minSize.height())
+    return s.expandedTo(QtCore.QSize(0, 0))
+
+
+def qFuzzyCompare(p1, p2):
+    return abs(p1 - p2) * 1000000000000.0 <= min(abs(p1), abs(p2))
+
+
+class PainterStateGuard(object):
+    def __init__(self, p):
+        self.m_painter = p
+        self.m_level = 0
+
+    def __del__(self):
+        while self.m_level > 0:
+            self.m_level -= 1
+            self.m_painter.restore()
+
+    def save(self):
+        self.m_painter.save()
+        self.m_level += 1
+
+    def restore(self):
+        self.m_painter.restore()
+        self.m_level -= 1
+
+
+def qDrawShadePanel(p, x, y, w, h, pal, sunken, lineWidth, fill):
+    # type: (QtGui.QPainter, int, int, int, int, QtGui.QPalette, bool, int, QtGui.QBrush) -> None
+    if w == 0 or h == 0:
+        return
+    if w < 0 or h < 0 or lineWidth < 0:
+        print("qDrawShadePanel: Invalid parameters")
+
+    painterGuard = PainterStateGuard(p)
+    # devicePixelRatioF() is causing segmentation faults
+    devicePixelRatio = 1.0  # p.device().devicePixelRatioF()
+    if not qFuzzyCompare(devicePixelRatio, 1.0):
+        painterGuard.save()
+        inverseScale = 1.0 / devicePixelRatio
+        p.scale(inverseScale, inverseScale)
+        x = round(devicePixelRatio * x)
+        y = round(devicePixelRatio * y)
+        w = round(devicePixelRatio * w)
+        h = round(devicePixelRatio * h)
+        lineWidth = round(devicePixelRatio * lineWidth)
+
+    shade = pal.dark().color()
+    light = pal.light().color()
+    if fill:
+        if fill.color() == shade:
+            shade = pal.shadow().color()
+        if fill.color() == light:
+            light = pal.midlight().color()
+
+    oldPen = p.pen()  # save pen
+    lines = []
+    if sunken:
+        p.setPen(shade)
+    else:
+        p.setPen(light)
+    x1, y1, x2, y2 = x, y, x + w - 2, y
+
+    for i in range(lineWidth):  # top shadow
+        y1 += 1
+        x2 -= 1
+        y2 += 1
+        lines.append(QtCore.QLineF(x1, y1, x2, y2))
+
+    x2 = x1
+    y1 = y + h - 2
+    for i in range(lineWidth):  # left shadow
+        x1 += 1
+        x2 += 1
+        y2 -= 1
+        lines.append(QtCore.QLineF(x1, y1, x2, y2))
+
+    p.drawLines(lines)
+    lines.clear()
+    if sunken:
+        p.setPen(light)
+    else:
+        p.setPen(shade)
+
+    x1 = x
+    y1 = y2 = y + h - 1
+    x2 = x + w - 1
+    for i in range(lineWidth):  # bottom shadow
+        x1 += 1
+        y1 -= 1
+        y2 -= 1
+        lines.append(QtCore.QLineF(x1, y1, x2, y2))
+
+    x1 = x2
+    y1 = y
+    y2 = y + h - lineWidth - 1
+    for i in range(lineWidth):  # right shadow
+        x1 -= 1
+        y1 += 1
+        x2 -= 1
+        lines.append(QtCore.QLineF(x1, y1, x2, y2))
+
+    p.drawLines(lines)
+    if fill:  # fill with fill color
+        p.fillRect(x + lineWidth, y + lineWidth, w - lineWidth * 2, h - lineWidth * 2, fill)
+    p.setPen(oldPen)  # restore pen
+
+
+def qt_getWindow(widget):
+    return widget.window().windowHandle() if widget else 0
+
+
+def _draw_header_section(opt, painter):
+    qDrawShadePanel(
+        painter,
+        opt.rect.x(),
+        opt.rect.y(),
+        opt.rect.width(),
+        opt.rect.height(),
+        opt.palette,
+        opt.state & QtWidgets.QStyle.State_Sunken,
+        1,
+        opt.palette.brush(QtGui.QPalette.Button)
+    )
+
+
+def _draw_header_label(opt, painter, widget):
+    rect = opt.rect
+    if not opt.icon.isNull():
+        iconExtent = widget.style().proxy().pixelMetric(QtWidgets.QStyle.PM_SmallIconSize)
+        pixmap = opt.icon.pixmap(
+            qt_getWindow(widget),
+            QtCore.QSize(iconExtent, iconExtent),
+            QtGui.QIcon.Normal if (opt.state & QtWidgets.QStyle.State_Enabled) else QtGui.QIcon.Disabled
+        )
+        pixw = pixmap.width() / pixmap.devicePixelRatio()
+        aligned = widget.style().alignedRect(
+            opt.direction,
+            opt.iconAlignment,  # QFlag(header.iconAlignment),
+            pixmap.size() / pixmap.devicePixelRatio(),
+            rect
+        )
+        inter = aligned.intersected(rect)
+        painter.drawPixmap(
+            inter.x(),
+            inter.y(),
+            pixmap,
+            inter.x() - aligned.x(),
+            inter.y() - aligned.y(),
+            aligned.width() * pixmap.devicePixelRatio(),
+            pixmap.height() * pixmap.devicePixelRatio()
+        )
+        margin = widget.style().proxy().pixelMetric(QtWidgets.QStyle.PM_HeaderMargin, opt, widget)
+        if opt.direction == QtCore.Qt.LeftToRight:
+            rect.setLeft(rect.left() + pixw + margin)
+        else:
+            rect.setRight(rect.right() - pixw - margin)
+
+    if opt.state & QtWidgets.QStyle.State_On:
+        fnt = painter.font()
+        fnt.setBold(True)
+        painter.setFont(fnt)
+
+    widget.style().proxy().drawItemText(
+        painter,
+        rect,
+        opt.textAlignment,
+        opt.palette,
+        (opt.state & QtWidgets.QStyle.State_Enabled),
+        opt.text,
+        QtGui.QPalette.ButtonText
+    )
+
+
+def _draw_header(opt, painter, widget):
+        # type: (QtWidgets.QStyleOptionHeader, QtGui.QPainter, QtWidgets.QHeaderView) -> None
+        print('Draw header')
+        # PySide does not correctly handle the python values set on the
+        # QStyleOptionHeader, so they are lost when cast to/from QStyleOption in
+        # standard QStyle draw commands. To ensure correct behaviour, handle the
+        # paint methods ourselves
+        clipRegion = painter.clipRegion()
+        painter.setClipRect(opt.rect)
+
+        # self.style().proxy().drawControl(
+        #     QtWidgets.QStyle.CE_HeaderSection, opt, painter, self
+        # )
+        _draw_header_section(opt, painter)
+
+        subopt = QtWidgets.QStyleOptionHeader(opt)
+        subopt.rect = widget.style().proxy().subElementRect(
+            QtWidgets.QStyle.SE_HeaderLabel, subopt, widget
+        )
+
+        if subopt.rect.isValid():
+            # self.style().proxy().drawControl(
+            #     QtWidgets.QStyle.CE_HeaderLabel, subopt, painter, self
+            # )
+            _draw_header_label(opt, painter, widget)
+
+        if opt.sortIndicator != QtWidgets.QStyleOptionHeader.SortIndicator(0):
+            subopt.rect = widget.style().proxy().subElementRect(
+                QtWidgets.QStyle.SE_HeaderArrow, opt, widget
+            )
+            widget.style().proxy().drawPrimitive(
+                QtWidgets.QStyle.PE_IndicatorHeaderArrow, subopt, painter, widget
+            )
+
+        painter.setClipRegion(clipRegion)
+
+
 class HeaderModelIndex(object):
-    def __init__(self, orientation, section=-1, model=None):
-        # type: (int, int, QtCore.QAbstractItemModel) -> None
+    def __init__(self, orientation, section=-1, model=None, view=None):
+        # type: (int, int, QtCore.QAbstractItemModel, QtWidgets.QHeaderView) -> None
         self._orientation = orientation
         self._section = section
         self._model = model
+        self._view = view
 
     def __lt__(self, other):
         return self._section < other.section()
@@ -42,6 +281,9 @@ class HeaderModelIndex(object):
     def sibling(self, section):
         # type: (int) -> HeaderModelIndex
         return HeaderModelIndex(self._orientation, section, self._model)
+
+    def view(self):
+        return self._view
 
 
 class HeaderItemDelegate(QtWidgets.QStyledItemDelegate):
@@ -138,7 +380,7 @@ class HeaderItemDelegate(QtWidgets.QStyledItemDelegate):
 
     def paint(self, painter, option, index):
         # type: (QtGui.QPainter, QtWidgets.QStyleOptionHeader, HeaderModelIndex) -> None
-        QtWidgets.QApplication.style().drawControl(QtWidgets.QStyle.CE_Header, option, painter)
+        _draw_header(option, painter, index.view())
 
     def setEditorData(self, editor, index):
         # type: (QtWidgets.QWidget, HeaderModelIndex) -> None
@@ -179,37 +421,6 @@ class HeaderItemDelegate(QtWidgets.QStyledItemDelegate):
             else:
                 geom.adjust(0, 0, delta, 0)
         editor.setGeometry(geom)
-
-
-def qSmartMinSizeWidget(widget):
-    return qSmartMinSize(
-        widget.sizeHint(),
-        widget.minimumSizeHint(),
-        widget.minimumSize(),
-        widget.maximumSize(),
-        widget.sizePolicy(),
-    )
-
-
-def qSmartMinSize(sizeHint, minSizeHint, minSize, maxSize, sizePolicy):
-    s = QtCore.QSize(0, 0)
-    if sizePolicy.horizontalPolicy() != QtWidgets.QSizePolicy.Ignored:
-        if sizePolicy.horizontalPolicy() & QtWidgets.QSizePolicy.ShrinkFlag:
-            s.setWidth(minSizeHint.width())
-        else:
-            s.setWidth(max(sizeHint.width(), minSizeHint.width()))
-    if sizePolicy.verticalPolicy() != QtWidgets.QSizePolicy.Ignored:
-        if sizePolicy.verticalPolicy() & QtWidgets.QSizePolicy.ShrinkFlag:
-            s.setHeight(minSizeHint.height())
-        else:
-            s.setHeight(max(sizeHint.height(), minSizeHint.height()))
-
-    s = s.boundedTo(maxSize)
-    if minSize.width() > 0:
-        s.setWidth(minSize.width())
-    if minSize.height() > 0:
-        s.setHeight(minSize.height())
-    return s.expandedTo(QtCore.QSize(0, 0))
 
 
 class HeaderDelegateView(QtWidgets.QHeaderView):
@@ -505,7 +716,7 @@ class HeaderDelegateView(QtWidgets.QHeaderView):
         if not rect.isValid():
             return
 
-        # TODO: Comapre against the "correct" paintSection
+        # TODO: Compare against the "correct" paintSection
         painter.save()
 
         opt = self.get_section_style_option(logical_index)
@@ -527,21 +738,16 @@ class HeaderDelegateView(QtWidgets.QHeaderView):
         # Check if it has a delegate and if it defines a paint method
         delegate = self.delegateForIndex(logical_index)
         if delegate is not None:
-            delegate.paint(painter, opt,
-                           HeaderModelIndex(self.orientation(), logical_index, self.model()))
+            delegate.paint(painter,
+                           opt,
+                           HeaderModelIndex(self.orientation(),
+                                            section=logical_index,
+                                            model=self.model(),
+                                            view=self)
+                           )
         else:
-            # style = self.style()
-            # style.drawControl(QtWidgets.QStyle.CE_HeaderSection, opt, painter, self)
-            # painter.setBrush(opt.palette.background())
-            # painter.drawRect(rect)
-            # style.drawControl(QtWidgets.QStyle.CE_HeaderLabel, opt, painter, self)
-            #
-            # # WIP: sortIndicator drawing
-            # if opt.sortIndicator:
-            #     opt.rect = style.subElementRect(QtWidgets.QStyle.SE_HeaderArrow, opt)
-            #     style.proxy().drawPrimitive(QtWidgets.QStyle.PE_IndicatorHeaderArrow, opt, painter)
-
-            self.style().drawControl(QtWidgets.QStyle.CE_Header, opt, painter, self)
+            _draw_header(opt, painter, self)
+            # self.style().drawControl(QtWidgets.QStyle.CE_Header, opt, painter, self)
 
         painter.restore()
 
@@ -728,6 +934,7 @@ if __name__ == '__main__':
         QtGui.QStandardItem('female'),
         QtGui.QStandardItem('dunlop'),
     ])
+    model.setHeaderData(0, QtCore.Qt.Horizontal, QtGui.QColor('red'), QtCore.Qt.BackgroundRole)
 
     view = QtWidgets.QTableView()
     header = HeaderDelegateView(QtCore.Qt.Horizontal)

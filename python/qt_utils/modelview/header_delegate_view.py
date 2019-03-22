@@ -204,7 +204,6 @@ def _draw_header_label(opt, painter, widget):
 
 def _draw_header(opt, painter, widget):
         # type: (QtWidgets.QStyleOptionHeader, QtGui.QPainter, QtWidgets.QHeaderView) -> None
-        print('Draw header')
         # PySide does not correctly handle the python values set on the
         # QStyleOptionHeader, so they are lost when cast to/from QStyleOption in
         # standard QStyle draw commands. To ensure correct behaviour, handle the

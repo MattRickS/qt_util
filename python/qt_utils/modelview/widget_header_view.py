@@ -48,16 +48,10 @@ class WidgetHeaderView(QtWidgets.QHeaderView):
         # Can be subclassed for custom widgets
         model = self.model()
         data_type = model.headerData(logical_index, QtCore.Qt.Horizontal, self.HeaderDataTypeRole)
-        if data_type is None:
-            if self._data_types_only:
-                widget = None
-            else:
-                cls = self._widget_type_mapping.get(None)
-                widget = cls(self, logical_index, self.orientation(), self)
-        else:
-            cls = self._widget_type_mapping.get(data_type)
-            widget = cls(self, logical_index, self.orientation(), self)
-        self._widgets[logical_index] = widget
+        if data_type is None and self._data_types_only:
+            return
+        cls = self._widget_type_mapping.get(data_type)
+        widget = None if cls is None else cls(self, logical_index, self.orientation(), self)
         return widget
 
     def get_header_geometry(self, logical_index):
@@ -123,7 +117,7 @@ class WidgetHeaderView(QtWidgets.QHeaderView):
                 if w and datatypes_only:
                     self.remove_header_widget(i)
                 elif w is None and not datatypes_only:
-                    self.create_header_widget(i)
+                    self._widgets[i] = self.create_header_widget(i)
 
     def set_default_widget(self, widget_cls):
         # type: (Type[QtWidgets.QWidget]) -> None
@@ -145,7 +139,7 @@ class WidgetHeaderView(QtWidgets.QHeaderView):
         self._widget_type_mapping[data_type] = widget_cls
         for i, w in enumerate(self._widgets):
             if self.model().headerData(i, self.orientation(), self.HeaderDataTypeRole) == data_type:
-                self.create_header_widget(i)
+                self._widgets[i] = self.create_header_widget(i)
                 if w is not None:
                     self.remove_header_widget(i)
 
@@ -222,9 +216,7 @@ class WidgetHeaderView(QtWidgets.QHeaderView):
 
     def showEvent(self, event):
         # Create a widget for each column
-        self._widgets = [None] * self.count()
-        for i in range(self.count()):
-            self.create_header_widget(i)
+        self._widgets = [self.create_header_widget(i) for i in range(self.count())]
         super(WidgetHeaderView, self).showEvent(event)
 
 

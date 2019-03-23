@@ -3,157 +3,10 @@ from PySide2 import QtCore, QtGui, QtWidgets
 MARGIN = 1
 
 
-# Make a basic widget that paints the string/placeholder in a fake lineedit
-# Have an editable widget. Ie, basically make an ItemDelegate for this.
-# Actually, might be able to subclass Delegate for this...
-class FilterField(object):
-    def __init__(self, field_name, field_type, editable=True):
-        # type: (str, type, bool) -> None
-        self.name = field_name
-        self.type = field_type
-        self.editable = editable
-
-        self._auto_apply = False
-        self._saved = ''
-        self._method = None
-        self._string = ''
-        self._valid = True
-        self._value = None
-
-    def __repr__(self):
-        return 'FilterField({!r}, {}, {})'.format(self.name, self.type, self.editable)
-
-    @property
-    def auto_apply(self):
-        # type: () -> bool
-        return self._auto_apply
-
-    @property
-    def method(self):
-        # type: () -> str
-        """ The current method in the filter """
-        return self._method
-
-    @property
-    def string(self):
-        # type: () -> str
-        """ The display string being stored in the FilterField """
-        return self._string
-
-    @property
-    def valid(self):
-        # type: () -> bool
-        """ Whether or not the display string is a valid filter """
-        return self._valid
-
-    @property
-    def value(self):
-        # type: () -> object
-        """ The current value for the filter method """
-        return self._value
-
-    def clear(self, force=False):
-        # type: (bool) -> bool
-        """ Clears the current values if editable or forced """
-        if not force and not self.editable:
-            return False
-        self._method = None
-        self._string = ''
-        self._valid = True
-        self._value = None
-        return True
-
-    def is_modified(self):
-        # type: () -> bool
-        """ Whether or not the filter is considered applied """
-        return self._saved != self._string
-
-    def restore(self):
-        """ Restores the internal data to the last applied state """
-        if not self._saved:
-            self.clear(force=True)
-        elif self.is_modified():
-            self.set(self._saved)
-
-    def save(self):
-        # type: () -> bool
-        """ Saves a copy of the current state of the filters if they are valid """
-        if not self._valid:
-            return False
-        self._saved = self._string
-        return True
-
-    def set(self, string):
-        # type: (str) -> bool
-        """ Sets a string value on the FilterField, updating the internal filters """
-        if not self.editable:
-            return False
-
-        self._string = string
-        try:
-            self._method, self._value = '', ''  # filter_strings.parse_string(string, self.name, self.type)
-            self._valid = True
-            if self._auto_apply:
-                self.save()
-        except ValueError:
-            self._valid = False
-
-        return self._valid
-
-    def set_auto_apply(self, auto_apply):
-        # type: (bool) -> None
-        self._auto_apply = auto_apply
-        if self.is_modified():
-            self.save()
-
-
-class HeaderWidget(QtWidgets.QWidget):
-    editingFinished = QtCore.Signal()
-    headerDataChanged = QtCore.Signal(int, object)  # Role, value
-
-    def on_header_data_changed(self, role, value):
-        pass
-
-
-class FilterLineEdit(QtWidgets.QLineEdit):
-    headerDataChanged = QtCore.Signal(int, object)  # Role, value
-
-    def __init__(self, filter_field, parent=None):
-        # type: (FilterField, QtWidgets.QWidget) -> None
-        super(FilterLineEdit, self).__init__(parent)
-        self.setPlaceholderText('Filter...')
-        self.filter_field = filter_field
-        self.update_style()
-        self.editingFinished.connect(self.on_editing_finished)
-
-    def update_style(self):
-        if not self.filter_field.editable:
-            colour = 'black'
-        elif not self.filter_field.valid:
-            colour = 'red'
-        elif self.filter_field.is_modified():
-            colour = 'cyan'
-        elif self.filter_field.string:
-            colour = 'darkorange'
-        else:
-            colour = 'orange'
-
-        self.setStyleSheet(' QWidget { background: %s; } ' % colour)
-
-    def on_editing_finished(self):
-        self.filter_field.set(self.text())
-        self.update_style()
-
-
-class FilterComboBoolean(QtWidgets.QComboBox):
-    def __init__(self, parent=None):
-        super(FilterComboBoolean, self).__init__(parent)
-        self.addItems(['No Filter', 'True', 'False'])
-
-
 class WidgetHeaderView(QtWidgets.QHeaderView):
     HeaderDataRole = QtCore.Qt.UserRole + 1000
-    HeaderDataTypeRole = QtCore.Qt.UserRole + 1001
+    HeaderDataTypeRole = HeaderDataRole + 1
+    HeaderEditRole = HeaderDataRole + 2
 
     def __init__(self, parent=None):
         super(WidgetHeaderView, self).__init__(QtCore.Qt.Horizontal, parent)
@@ -172,42 +25,71 @@ class WidgetHeaderView(QtWidgets.QHeaderView):
         for i, w in enumerate(self._widgets):
             if self.model().headerData(i, self.orientation(), self.HeaderDataTypeRole) == data_type:
                 self._widgets[i] = self.create_header_widget(i)
+                if w is not None:
+                    w.hide()
+                    w.setParent(None)
+                    w.deleteLater()
 
     def set_default_widget(self, widget_cls):
         self.set_widget_type(None, widget_cls)
+
+    def has_widget(self, logical_index):
+        try:
+            return self._widgets[logical_index] is not None
+        except IndexError:
+            return False
 
     def create_header_widget(self, logical_index):
         # type: (int) -> QtWidgets.QWidget
         # Can be subclassed for custom widgets
         model = self.model()
-        name = model.headerData(logical_index, QtCore.Qt.Horizontal, QtCore.Qt.DisplayRole)
-        data_type = model.headerData(logical_index, QtCore.Qt.Horizontal, self.HeaderDataRole)
-        editable = model.headerData(logical_index, QtCore.Qt.Horizontal, QtCore.Qt.EditRole)
-        filter_field = FilterField(name, data_type, editable)
-        widget = FilterLineEdit(filter_field, self)
-        # Can ensure the widget stays up to date with the source model
-        # self.headerDataChanged.connect()
+        data_type = model.headerData(logical_index, QtCore.Qt.Horizontal, self.HeaderDataTypeRole)
+        cls = self._widget_type_mapping.get(data_type, self._widget_type_mapping.get(None))
+        if cls is None:
+            return
+        widget = cls(self, logical_index, self.orientation(), self)
         return widget
+        # model = self.model()
+        # name = model.headerData(logical_index, QtCore.Qt.Horizontal, QtCore.Qt.DisplayRole)
+        # value = model.headerData(logical_index, QtCore.Qt.Horizontal, self.HeaderDataRole)
+        # data_type = model.headerData(logical_index, QtCore.Qt.Horizontal, self.HeaderDataTypeRole)
+        # editable = model.headerData(logical_index, QtCore.Qt.Horizontal, self.HeaderEditRole)
+        # filter_field = FilterField(name, data_type, editable)
+        # widget = FilterLineEdit(filter_field, self)
+        # # Can ensure the widget stays up to date with the source model
+        # # self.headerDataChanged.connect()
+        # return widget
 
     def get_header_geometry(self, logical_index):
         # type: (int) -> QtCore.QRect
-        half_height = self.height() * 0.5
-        return QtCore.QRect(
-            self.sectionViewportPosition(logical_index) + MARGIN,
-            0,
-            self.sectionSize(logical_index) - MARGIN,
-            half_height,
-        )
+        if self.has_widget(logical_index):
+            half_height = self.height() * 0.5
+            return QtCore.QRect(
+                self.sectionViewportPosition(logical_index) + MARGIN,
+                0,
+                self.sectionSize(logical_index) - MARGIN,
+                half_height,
+            )
+        else:
+            return QtCore.QRect(
+                self.sectionViewportPosition(logical_index) + MARGIN,
+                0,
+                self.sectionSize(logical_index) - MARGIN,
+                self.height(),
+            )
 
     def get_widget_geometry(self, logical_index):
         # type: (int) -> QtCore.QRect
-        half_height = self.height() * 0.5
-        return QtCore.QRect(
-            self.sectionViewportPosition(logical_index) + MARGIN,
-            half_height,
-            self.sectionSize(logical_index) - MARGIN,
-            half_height,
-        )
+        if self.has_widget(logical_index):
+            half_height = self.height() * 0.5
+            return QtCore.QRect(
+                self.sectionViewportPosition(logical_index) + MARGIN,
+                half_height,
+                self.sectionSize(logical_index) - MARGIN,
+                half_height,
+            )
+        else:
+            return self.get_header_geometry(logical_index)
 
     def sizeHint(self):
         # type: () -> QtCore.QSize
@@ -217,13 +99,14 @@ class WidgetHeaderView(QtWidgets.QHeaderView):
     def paintSection(self, painter, rect, logical_index):
         # type: (QtGui.QPainter, QtCore.QRect, int) -> None
         # Render the filter widget in the header widget rect
-        painter.save()
-        widget_geo = self.get_widget_geometry(logical_index)
-        painter.translate(widget_geo.topLeft())
-        widget = self._widgets[logical_index]
-        widget.resize(widget_geo.size())
-        widget.render(painter, QtCore.QPoint())
-        painter.restore()
+        if self.has_widget(logical_index):
+            painter.save()
+            widget_geo = self.get_widget_geometry(logical_index)
+            painter.translate(widget_geo.topLeft())
+            widget = self._widgets[logical_index]
+            widget.resize(widget_geo.size())
+            widget.render(painter, QtCore.QPoint())
+            painter.restore()
 
         # Render the original header section in the remaining area
         header_geo = self.get_header_geometry(logical_index)
@@ -234,17 +117,25 @@ class WidgetHeaderView(QtWidgets.QHeaderView):
         # Check if the release happens in the region of a widget and if so,
         # display the widget
         index = self.logicalIndexAt(event.pos())
-        if 0 <= index < self.count():
+        if self.has_widget(index):
             rect = self.get_widget_geometry(index)
             if rect.contains(event.pos()):
                 widget = self._widgets[index]
                 widget.setGeometry(rect)
+                # Would it be possible to just show the widget whenever the
+                # mouse enters a widget region and hide it when it leaves? This
+                # would prevent keyboard entry being visible (but still occuring)
+                # if the mouse moved off the region. Hard to handle focus
                 # TODO: This won't work for everything, will require a base class
                 widget.editingFinished.connect(widget.close)
                 widget.show()
                 widget.setFocus(QtCore.Qt.MouseFocusReason)
-                # Prevent interaction with the widget region from
-                # triggering a section click
+                # Prevent interaction with the widget region from triggering a
+                # section click, otherwise it will be sorted (if sorting is
+                # enabled). Note: setSortIndicator is not virtual so overriding
+                # it explicitly is not possible
+                # TODO: This prevents the viewport from moving to ensure the
+                # column width is fully visible
                 self.setSectionsClickable(False)
         super(WidgetHeaderView, self).mouseReleaseEvent(event)
         if self.sectionsClickable() != clickable:
@@ -256,6 +147,8 @@ class WidgetHeaderView(QtWidgets.QHeaderView):
         # it will not respond correctly to the viewport being modified. Ensure
         # the widget is hidden and loses any focus.
         for widget in self._widgets:
+            if widget is None:
+                continue
             if widget.hasFocus():
                 widget.clearFocus()
             if widget.isVisible():
@@ -270,6 +163,64 @@ class WidgetHeaderView(QtWidgets.QHeaderView):
 if __name__ == '__main__':
     import sys
 
+    def update_style(widget, view, section, orientation):
+        return
+        editable = view.model().headerData(section, orientation, view.HeaderEditRole)
+        value = view.model().headerData(section, orientation, view.HeaderDataRole)
+        if editable is False:
+            colour = 'black'
+        # elif not filter_field.valid:
+        #     colour = 'red'
+        # elif filter_field.is_modified():
+        #     colour = 'cyan'
+        elif value:
+            colour = 'darkorange'
+        else:
+            colour = 'orange'
+
+        widget.setStyleSheet(' QWidget { background: %s; } ' % colour)
+
+
+    class FilterLineEdit(QtWidgets.QLineEdit):
+        def __init__(self, view, section, orientation, parent=None):
+            # type: (WidgetHeaderView, int, QtCore.Qt.Orientation, QtWidgets.QWidget) -> None
+            super(FilterLineEdit, self).__init__(parent)
+            self.view = view
+            self.orientation = orientation
+            self.section = section
+
+            self.editingFinished.connect(self.on_editing_finished)
+
+            self.setPlaceholderText('Filter...')
+            update_style(self, self.view, self.section, self.orientation)
+
+        def on_editing_finished(self):
+            self.view.model().setHeaderData(
+                self.section,
+                self.orientation,
+                self.text(),
+                self.view.HeaderDataRole
+            )
+            update_style(self, self.view, self.section, self.orientation)
+
+
+    class FilterComboBoolean(QtWidgets.QComboBox):
+        editingFinished = QtCore.Signal()
+
+        def __init__(self, view, section, orientation, parent=None):
+            super(FilterComboBoolean, self).__init__(parent)
+            self.view = view
+            self.orientation = orientation
+            self.section = section
+            self.addItems(['Filter...', 'True', 'False'])
+            update_style(self, self.view, self.section, self.orientation)
+
+            self.currentIndexChanged.connect(self.editingFinished)
+
+        def showEvent(self, event):
+            super(FilterComboBoolean, self).showEvent(event)
+            self.showPopup()
+
     app = QtWidgets.QApplication(sys.argv)
 
     model = QtGui.QStandardItemModel()
@@ -278,26 +229,31 @@ if __name__ == '__main__':
         'age',
         'gender',
         'surname',
+        'is_artist',
     ])
+    model.setHeaderData(4, QtCore.Qt.Horizontal, bool, WidgetHeaderView.HeaderDataTypeRole)
     model.insertRow(0, [
         QtGui.QStandardItem('ray'),
         QtGui.QStandardItem('30'),
         QtGui.QStandardItem('male'),
         QtGui.QStandardItem('barrett'),
+        QtGui.QStandardItem(''),
     ])
     model.insertRow(1, [
         QtGui.QStandardItem('emma'),
         QtGui.QStandardItem('30'),
         QtGui.QStandardItem('female'),
         QtGui.QStandardItem('dunlop'),
+        QtGui.QStandardItem(''),
     ])
     view = QtWidgets.QTableView()
     header = WidgetHeaderView()
+    header.set_default_widget(FilterLineEdit)
+    header.set_widget_type(bool, FilterComboBoolean)
     view.setHorizontalHeader(header)
     view.setSortingEnabled(True)
     view.setModel(model)
     view.show()
-    # view.resizeColumnsToContents()
 
     app.exec_()
     sys.exit()

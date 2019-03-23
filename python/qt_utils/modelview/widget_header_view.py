@@ -6,6 +6,10 @@ MARGIN = 1
 
 
 class HeaderLineEdit(QtWidgets.QLineEdit):
+    HeaderDataRole = QtCore.Qt.UserRole + 1000
+    HeaderDataTypeRole = HeaderDataRole + 1
+    HeaderEditRole = HeaderDataRole + 2
+
     def __init__(self, view, section, orientation, parent=None):
         # type: (WidgetHeaderView, int, QtCore.Qt.Orientation, QtWidgets.QWidget) -> None
         super(HeaderLineEdit, self).__init__(parent)
@@ -13,25 +17,40 @@ class HeaderLineEdit(QtWidgets.QLineEdit):
         self.orientation = orientation
         self.section = section
 
+        self.update_header_data()
+
         # TODO: Update text when header data is changed from model
         self.editingFinished.connect(self.on_editing_finished)
 
+    def update_header_data(self):
+        # TODO: Avoid using LineEdit specific methods, eg, setText()
+        value = self.view.model().headerData(
+            self.section,
+            self.orientation,
+            HeaderLineEdit.HeaderDataRole
+        )
+        self.setText(str(value) if value else '')
+
+        editable = self.view.model().headerData(
+            self.section,
+            self.orientation,
+            HeaderLineEdit.HeaderEditRole
+        )
+        self.setEnabled(editable is not False)
+
     def on_editing_finished(self):
+        # TODO: Avoid using LineEdit specific methods, eg, text()
         self.view.model().setHeaderData(
             self.section,
             self.orientation,
             self.text(),
-            self.view.HeaderDataRole
+            HeaderLineEdit.HeaderDataRole
         )
 
 
 class WidgetHeaderView(QtWidgets.QHeaderView):
-    HeaderDataRole = QtCore.Qt.UserRole + 1000
-    HeaderDataTypeRole = HeaderDataRole + 1
-    HeaderEditRole = HeaderDataRole + 2
-
-    def __init__(self, parent=None):
-        super(WidgetHeaderView, self).__init__(QtCore.Qt.Horizontal, parent)
+    def __init__(self, orientation, parent=None):
+        super(WidgetHeaderView, self).__init__(orientation, parent)
         self._widgets = []
         self._widget_type_mapping = {
             None: HeaderLineEdit
@@ -47,10 +66,12 @@ class WidgetHeaderView(QtWidgets.QHeaderView):
         """ Creates the widget for the index """
         # Can be subclassed for custom widgets
         model = self.model()
-        data_type = model.headerData(logical_index, QtCore.Qt.Horizontal, self.HeaderDataTypeRole)
+        data_type = model.headerData(logical_index,
+                                     QtCore.Qt.Horizontal,
+                                     HeaderLineEdit.HeaderDataTypeRole)
         if data_type is None and self._data_types_only:
             return
-        cls = self._widget_type_mapping.get(data_type)
+        cls = self._widget_type_mapping.get(data_type, self._widget_type_mapping.get(None))
         widget = None if cls is None else cls(self, logical_index, self.orientation(), self)
         return widget
 
@@ -113,7 +134,9 @@ class WidgetHeaderView(QtWidgets.QHeaderView):
         """ Whether or not to generate widgets for None values. Modifies existing widgets. """
         self._data_types_only = datatypes_only
         for i, w in enumerate(self._widgets):
-            if self.model().headerData(i, self.orientation(), self.HeaderDataTypeRole) is None:
+            if self.model().headerData(i,
+                                       self.orientation(),
+                                       HeaderLineEdit.HeaderDataTypeRole) is None:
                 if w and datatypes_only:
                     self.remove_header_widget(i)
                 elif w is None and not datatypes_only:
@@ -138,7 +161,9 @@ class WidgetHeaderView(QtWidgets.QHeaderView):
         # HeaderDataTypeRole
         self._widget_type_mapping[data_type] = widget_cls
         for i, w in enumerate(self._widgets):
-            if self.model().headerData(i, self.orientation(), self.HeaderDataTypeRole) == data_type:
+            if self.model().headerData(i,
+                                       self.orientation(),
+                                       HeaderLineEdit.HeaderDataTypeRole) == data_type:
                 self._widgets[i] = self.create_header_widget(i)
                 if w is not None:
                     self.remove_header_widget(i)
@@ -146,6 +171,17 @@ class WidgetHeaderView(QtWidgets.QHeaderView):
     # ======================================================================== #
     #  Subclassed
     # ======================================================================== #
+
+    def headerDataChanged(self, orientation, first, last):
+        # type: (QtCore.Qt.Orientation, int, int) -> None
+        super(WidgetHeaderView, self).headerDataChanged(orientation, first, last)
+        if orientation != self.orientation():
+            return
+        for i in range(first, min(len(self._widgets), last + 1)):
+            widget = self._widgets[i]
+            if widget is None:
+                continue
+            widget.update_header_data()
 
     def paintSection(self, painter, rect, logical_index):
         # type: (QtGui.QPainter, QtCore.QRect, int) -> None
@@ -195,7 +231,7 @@ class WidgetHeaderView(QtWidgets.QHeaderView):
                 # enabled). Note: setSortIndicator is not virtual so overriding
                 # it explicitly is not possible
                 # TODO: This prevents the viewport from moving to ensure the
-                # column width is fully visible
+                # column/row width is fully visible
                 self.setSectionsClickable(False)
         super(WidgetHeaderView, self).mouseReleaseEvent(event)
         if self.sectionsClickable() != clickable:
@@ -215,7 +251,7 @@ class WidgetHeaderView(QtWidgets.QHeaderView):
                 widget.close()
 
     def showEvent(self, event):
-        # Create a widget for each column
+        # Create a widget for each column/row
         self._widgets = [self.create_header_widget(i) for i in range(self.count())]
         super(WidgetHeaderView, self).showEvent(event)
 
@@ -223,10 +259,78 @@ class WidgetHeaderView(QtWidgets.QHeaderView):
 if __name__ == '__main__':
     import sys
 
+
+    class Model(QtCore.QAbstractTableModel):
+        def __init__(self, parent=None):
+            # type: (QtWidgets.QWidget) -> None
+            super(Model, self).__init__(parent)
+            self._entities = [
+                ['ray', 30, 'male', False],
+                ['emma', 30, 'female', True],
+            ]
+            self.columns = [
+                {'name': 'name', 'filter': '', 'type': str, 'editable': True},
+                {'name': 'age', 'filter': '', 'type': int, 'editable': False},
+                {'name': 'gender', 'filter': '', 'type': str, 'editable': True},
+                {'name': 'is_artist', 'filter': '', 'type': bool, 'editable': True},
+            ]
+
+        def columnCount(self, parent=QtCore.QModelIndex()):
+            # type: (QtCore.QModelIndex) -> int
+            return len(self.columns)
+
+        def data(self, index, role=QtCore.Qt.DisplayRole):
+            # type: (QtCore.QModelIndex, int) -> object
+            if not index.isValid():
+                return
+            if role == QtCore.Qt.DisplayRole:
+                return self._entities[index.row()][index.column()]
+
+        def flags(self, index):
+            # type: (QtCore.QModelIndex) -> QtCore.Qt.ItemFlags
+            return QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsSelectable
+
+        def headerData(self, section, orientation, role=QtCore.Qt.DisplayRole):
+            # type: (int, QtCore.Qt.Orientation, int) -> str
+            if orientation == QtCore.Qt.Horizontal:
+                if role == QtCore.Qt.DisplayRole:
+                    return self.columns[section]['name']
+                elif role == HeaderLineEdit.HeaderDataRole:
+                    return self.columns[section]['filter']
+                elif role == HeaderLineEdit.HeaderDataTypeRole:
+                    return self.columns[section]['type']
+                elif role == HeaderLineEdit.HeaderEditRole:
+                    return self.columns[section]['editable']
+
+        def rowCount(self, parent=QtCore.QModelIndex()):
+            # type: (QtCore.QModelIndex) -> int
+            return len(self._entities)
+
+        def setHeaderData(self, section, orientation, value, role=QtCore.Qt.EditRole):
+            if orientation == QtCore.Qt.Horizontal:
+                mapping = {
+                    QtCore.Qt.DisplayRole: 'name',
+                    HeaderLineEdit.HeaderDataTypeRole: 'type',
+                    HeaderLineEdit.HeaderDataRole: 'filter',
+                    HeaderLineEdit.HeaderEditRole: 'editable',
+                }
+                key = mapping[role]
+                data = self.columns[section]
+                if key in data:
+                    data[key] = value
+                    return True
+            return False
+
+        def setData(self, index, value, role=QtCore.Qt.EditRole):
+            # type: (QtCore.QModelIndex, object, int) -> bool
+            if not index.isValid():
+                return False
+
+
     def update_style(widget, view, section, orientation):
         # return
-        editable = view.model().headerData(section, orientation, view.HeaderEditRole)
-        value = view.model().headerData(section, orientation, view.HeaderDataRole)
+        editable = view.model().headerData(section, orientation, HeaderLineEdit.HeaderEditRole)
+        value = view.model().headerData(section, orientation, HeaderLineEdit.HeaderDataRole)
         if editable is False:
             colour = 'black'
         # elif not filter_field.valid:
@@ -241,26 +345,18 @@ if __name__ == '__main__':
         widget.setStyleSheet(' QWidget { background: %s; } ' % colour)
 
 
-    class FilterLineEdit(QtWidgets.QLineEdit):
+    class FilterLineEdit(HeaderLineEdit):
         def __init__(self, view, section, orientation, parent=None):
             # type: (WidgetHeaderView, int, QtCore.Qt.Orientation, QtWidgets.QWidget) -> None
-            super(FilterLineEdit, self).__init__(parent)
-            self.view = view
-            self.orientation = orientation
-            self.section = section
-
-            self.editingFinished.connect(self.on_editing_finished)
-
+            super(FilterLineEdit, self).__init__(view, section, orientation, parent)
             self.setPlaceholderText('Filter...')
+
+        def update_header_data(self):
+            super(FilterLineEdit, self).update_header_data()
             update_style(self, self.view, self.section, self.orientation)
 
         def on_editing_finished(self):
-            self.view.model().setHeaderData(
-                self.section,
-                self.orientation,
-                self.text(),
-                self.view.HeaderDataRole
-            )
+            super(FilterLineEdit, self).on_editing_finished()
             update_style(self, self.view, self.section, self.orientation)
 
 
@@ -283,32 +379,9 @@ if __name__ == '__main__':
 
     app = QtWidgets.QApplication(sys.argv)
 
-    model = QtGui.QStandardItemModel()
-    model.setHorizontalHeaderLabels([
-        'name',
-        'age',
-        'gender',
-        'surname',
-        'is_artist',
-    ])
-    model.setHeaderData(4, QtCore.Qt.Horizontal, bool, WidgetHeaderView.HeaderDataTypeRole)
-    model.insertRow(0, [
-        QtGui.QStandardItem('ray'),
-        QtGui.QStandardItem('30'),
-        QtGui.QStandardItem('male'),
-        QtGui.QStandardItem('barrett'),
-        QtGui.QStandardItem(''),
-    ])
-    model.insertRow(1, [
-        QtGui.QStandardItem('emma'),
-        QtGui.QStandardItem('30'),
-        QtGui.QStandardItem('female'),
-        QtGui.QStandardItem('dunlop'),
-        QtGui.QStandardItem(''),
-    ])
+    model = Model()
     view = QtWidgets.QTableView()
-    header = WidgetHeaderView()
-    # header.set_datatypes_only(True)
+    header = WidgetHeaderView(QtCore.Qt.Horizontal)
     header.set_default_widget(FilterLineEdit)
     header.set_widget_type(bool, FilterComboBoolean)
     view.setHorizontalHeader(header)
@@ -317,4 +390,6 @@ if __name__ == '__main__':
     view.show()
 
     app.exec_()
+    for d in model.columns:
+        print(d)
     sys.exit()

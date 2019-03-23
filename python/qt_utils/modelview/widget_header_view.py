@@ -1,6 +1,28 @@
+from typing import Type
+
 from PySide2 import QtCore, QtGui, QtWidgets
 
 MARGIN = 1
+
+
+class HeaderLineEdit(QtWidgets.QLineEdit):
+    def __init__(self, view, section, orientation, parent=None):
+        # type: (WidgetHeaderView, int, QtCore.Qt.Orientation, QtWidgets.QWidget) -> None
+        super(HeaderLineEdit, self).__init__(parent)
+        self.view = view
+        self.orientation = orientation
+        self.section = section
+
+        # TODO: Update text when header data is changed from model
+        self.editingFinished.connect(self.on_editing_finished)
+
+    def on_editing_finished(self):
+        self.view.model().setHeaderData(
+            self.section,
+            self.orientation,
+            self.text(),
+            self.view.HeaderDataRole
+        )
 
 
 class WidgetHeaderView(QtWidgets.QHeaderView):
@@ -11,57 +33,36 @@ class WidgetHeaderView(QtWidgets.QHeaderView):
     def __init__(self, parent=None):
         super(WidgetHeaderView, self).__init__(QtCore.Qt.Horizontal, parent)
         self._widgets = []
-        self._widget_type_mapping = {}
+        self._widget_type_mapping = {
+            None: HeaderLineEdit
+        }
+        self._data_types_only = False
 
         self.setSectionsClickable(True)
         self.setHighlightSections(True)
         self.setDefaultAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignTop)
 
-    def set_widget_type(self, data_type, widget_cls):
-        # Convenience method for setting the widget type to use for particular
-        # data types. Data types are anything returned by the model for the
-        # HeaderDataTypeRole
-        self._widget_type_mapping[data_type] = widget_cls
-        for i, w in enumerate(self._widgets):
-            if self.model().headerData(i, self.orientation(), self.HeaderDataTypeRole) == data_type:
-                self._widgets[i] = self.create_header_widget(i)
-                if w is not None:
-                    w.hide()
-                    w.setParent(None)
-                    w.deleteLater()
-
-    def set_default_widget(self, widget_cls):
-        self.set_widget_type(None, widget_cls)
-
-    def has_widget(self, logical_index):
-        try:
-            return self._widgets[logical_index] is not None
-        except IndexError:
-            return False
-
     def create_header_widget(self, logical_index):
-        # type: (int) -> QtWidgets.QWidget
+        # type: (int) -> QtWidgets.QWidget|None
+        """ Creates the widget for the index """
         # Can be subclassed for custom widgets
         model = self.model()
         data_type = model.headerData(logical_index, QtCore.Qt.Horizontal, self.HeaderDataTypeRole)
-        cls = self._widget_type_mapping.get(data_type, self._widget_type_mapping.get(None))
-        if cls is None:
-            return
-        widget = cls(self, logical_index, self.orientation(), self)
+        if data_type is None:
+            if self._data_types_only:
+                widget = None
+            else:
+                cls = self._widget_type_mapping.get(None)
+                widget = cls(self, logical_index, self.orientation(), self)
+        else:
+            cls = self._widget_type_mapping.get(data_type)
+            widget = cls(self, logical_index, self.orientation(), self)
+        self._widgets[logical_index] = widget
         return widget
-        # model = self.model()
-        # name = model.headerData(logical_index, QtCore.Qt.Horizontal, QtCore.Qt.DisplayRole)
-        # value = model.headerData(logical_index, QtCore.Qt.Horizontal, self.HeaderDataRole)
-        # data_type = model.headerData(logical_index, QtCore.Qt.Horizontal, self.HeaderDataTypeRole)
-        # editable = model.headerData(logical_index, QtCore.Qt.Horizontal, self.HeaderEditRole)
-        # filter_field = FilterField(name, data_type, editable)
-        # widget = FilterLineEdit(filter_field, self)
-        # # Can ensure the widget stays up to date with the source model
-        # # self.headerDataChanged.connect()
-        # return widget
 
     def get_header_geometry(self, logical_index):
         # type: (int) -> QtCore.QRect
+        """ The geometry rect within the header for the standard header """
         if self.has_widget(logical_index):
             half_height = self.height() * 0.5
             return QtCore.QRect(
@@ -80,6 +81,7 @@ class WidgetHeaderView(QtWidgets.QHeaderView):
 
     def get_widget_geometry(self, logical_index):
         # type: (int) -> QtCore.QRect
+        """ The geometry rect within the header for the widget """
         if self.has_widget(logical_index):
             half_height = self.height() * 0.5
             return QtCore.QRect(
@@ -91,10 +93,65 @@ class WidgetHeaderView(QtWidgets.QHeaderView):
         else:
             return self.get_header_geometry(logical_index)
 
-    def sizeHint(self):
-        # type: () -> QtCore.QSize
-        size = super(WidgetHeaderView, self).size()
-        return QtCore.QSize(size.width(), 50)
+    def has_widget(self, logical_index):
+        # type: (int) -> bool
+        """ Whether or not a widget exists for the given index """
+        try:
+            return self._widgets[logical_index] is not None
+        except IndexError:
+            return False
+
+    def remove_header_widget(self, index):
+        # type: (int) -> None
+        """ Removes the widget from the view """
+        try:
+            widget = self._widgets[index]
+        except IndexError:
+            return
+        self._widgets[index] = None
+        if widget.isVisible():
+            widget.hide()
+        widget.setParent(None)
+        widget.deleteLater()
+
+    def set_datatypes_only(self, datatypes_only):
+        # type: (bool) -> None
+        """ Whether or not to generate widgets for None values. Modifies existing widgets. """
+        self._data_types_only = datatypes_only
+        for i, w in enumerate(self._widgets):
+            if self.model().headerData(i, self.orientation(), self.HeaderDataTypeRole) is None:
+                if w and datatypes_only:
+                    self.remove_header_widget(i)
+                elif w is None and not datatypes_only:
+                    self.create_header_widget(i)
+
+    def set_default_widget(self, widget_cls):
+        # type: (Type[QtWidgets.QWidget]) -> None
+        """
+        Sets the widget class to initialise for unknown datatypes using the
+        standard create_header_widget(). Modifies existing widgets.
+        """
+        self.set_widget_type(None, widget_cls)
+
+    def set_widget_type(self, data_type, widget_cls):
+        # type: (object, Type[QtWidgets.QWidget]) -> None
+        """
+        Sets the widget class to use for a data type as returned by the
+        HeaderDataTypeRole. Modifies existing widgets.
+        """
+        # Convenience method for setting the widget type to use for particular
+        # data types. Data types are anything returned by the model for the
+        # HeaderDataTypeRole
+        self._widget_type_mapping[data_type] = widget_cls
+        for i, w in enumerate(self._widgets):
+            if self.model().headerData(i, self.orientation(), self.HeaderDataTypeRole) == data_type:
+                self.create_header_widget(i)
+                if w is not None:
+                    self.remove_header_widget(i)
+
+    # ======================================================================== #
+    #  Subclassed
+    # ======================================================================== #
 
     def paintSection(self, painter, rect, logical_index):
         # type: (QtGui.QPainter, QtCore.QRect, int) -> None
@@ -111,6 +168,15 @@ class WidgetHeaderView(QtWidgets.QHeaderView):
         # Render the original header section in the remaining area
         header_geo = self.get_header_geometry(logical_index)
         super(WidgetHeaderView, self).paintSection(painter, header_geo, logical_index)
+
+    def sizeHint(self):
+        # type: () -> QtCore.QSize
+        size = super(WidgetHeaderView, self).size()
+        return QtCore.QSize(size.width(), 50)
+
+    # ======================================================================== #
+    #  Events
+    # ======================================================================== #
 
     def mouseReleaseEvent(self, event):
         clickable = self.sectionsClickable()
@@ -156,7 +222,9 @@ class WidgetHeaderView(QtWidgets.QHeaderView):
 
     def showEvent(self, event):
         # Create a widget for each column
-        self._widgets = [self.create_header_widget(i) for i in range(self.count())]
+        self._widgets = [None] * self.count()
+        for i in range(self.count()):
+            self.create_header_widget(i)
         super(WidgetHeaderView, self).showEvent(event)
 
 
@@ -164,7 +232,7 @@ if __name__ == '__main__':
     import sys
 
     def update_style(widget, view, section, orientation):
-        return
+        # return
         editable = view.model().headerData(section, orientation, view.HeaderEditRole)
         value = view.model().headerData(section, orientation, view.HeaderDataRole)
         if editable is False:
@@ -248,6 +316,7 @@ if __name__ == '__main__':
     ])
     view = QtWidgets.QTableView()
     header = WidgetHeaderView()
+    # header.set_datatypes_only(True)
     header.set_default_widget(FilterLineEdit)
     header.set_widget_type(bool, FilterComboBoolean)
     view.setHorizontalHeader(header)

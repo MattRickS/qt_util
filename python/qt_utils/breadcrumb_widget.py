@@ -10,7 +10,8 @@ class Separator(QtWidgets.QPushButton):
 
 
 class BreadCrumb(QtWidgets.QPushButton):
-    pass
+    def __repr__(self):
+        return '{}({!r})'.format(self.__class__.__name__, self.text())
 
 
 class BreadCrumbWidget(QtWidgets.QWidget):
@@ -36,29 +37,25 @@ class BreadCrumbWidget(QtWidgets.QWidget):
         return self._breadcrumb_widget
 
     @property
-    def separator_widget(self):
-        # type: () -> Type[Separator]
-        """ The Separator class being used """
-        return self._separator_widget
-
-    @property
     def separators_hidden(self):
         # type: () -> bool
         """ Whether or not separators are visible in the path """
         return self._hidden_separators
 
+    @property
+    def separator_widget(self):
+        # type: () -> Type[Separator]
+        """ The Separator class being used """
+        return self._separator_widget
+
     def add_breadcrumb(self, name):
         # type: (str) -> BreadCrumb
         """ Adds a breadcrumb to the path """
-        breadcrumb = self._breadcrumb_widget(name)
-        breadcrumb.clicked.connect(self.on_breadcrumb_clicked)
+        count = self._layout.count()
+        if count:
+            self._layout.addWidget(self.create_separator(count // 2))
 
-        if self._layout.count():
-            separator = self._separator_widget()
-            separator.clicked.connect(self.on_separator_clicked)
-            separator.setHidden(self._hidden_separators)
-            self._layout.addWidget(separator)
-
+        breadcrumb = self.create_breadcrumb(name, count // 2)
         self._layout.addWidget(breadcrumb)
         return breadcrumb
 
@@ -75,6 +72,21 @@ class BreadCrumbWidget(QtWidgets.QWidget):
         """ Clears the path """
         for i in reversed(range(self._layout.count())):
             self._remove_index(i)
+
+    def create_breadcrumb(self, name, index):
+        # type: (str, int) -> BreadCrumb
+        """ Creates and connects the BreadCrumb """
+        breadcrumb = self._breadcrumb_widget(name)
+        breadcrumb.clicked.connect(self.on_breadcrumb_clicked)
+        return breadcrumb
+
+    def create_separator(self, index):
+        # type: (int) -> Separator
+        """ Creates and connects the separator """
+        separator = self._separator_widget()
+        separator.clicked.connect(self.on_separator_clicked)
+        separator.setHidden(self._hidden_separators)
+        return separator
 
     def get_breadcrumb(self, index):
         # type: (int) -> BreadCrumb|None
@@ -111,9 +123,7 @@ class BreadCrumbWidget(QtWidgets.QWidget):
         for i in range(0, self._layout.count(), 2):
             name = self._layout.itemAt(i).widget().text()
             self._remove_index(i)
-            breadcrumb = self._breadcrumb_widget(name)
-            breadcrumb.clicked.connect(self.on_breadcrumb_clicked)
-            self._layout.insertWidget(i, breadcrumb)
+            self._layout.insertWidget(i, self.create_breadcrumb(name, i // 2))
 
     def set_path(self, path):
         # type: (list[str]) -> None
@@ -128,10 +138,7 @@ class BreadCrumbWidget(QtWidgets.QWidget):
         self._separator_widget = cls
         for i in range(1, self._layout.count(), 2):
             self._remove_index(i)
-            separator = self._separator_widget()
-            separator.clicked.connect(self.on_separator_clicked)
-            separator.setHidden(self._hidden_separators)
-            self._layout.insertWidget(i, separator)
+            self._layout.insertWidget(i, self.create_separator((i - 1) // 2))
 
     def set_separators_hidden(self, hidden):
         # type: (bool) -> None

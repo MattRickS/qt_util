@@ -73,6 +73,11 @@ class BreadCrumbWidget(QtWidgets.QWidget):
         for i in reversed(range(self._layout.count())):
             self._remove_index(i)
 
+    def count(self):
+        # type: () -> int
+        """ Returns the number of breadcrumbs in the path """
+        return (self._layout.count() + 1) // 2
+
     def create_breadcrumb(self, name, index):
         # type: (str, int) -> BreadCrumb
         """ Creates and connects the BreadCrumb """
@@ -224,13 +229,17 @@ if __name__ == '__main__':
             self.print_btn.clicked.connect(lambda: print(self.breadcrumb.get_path()))
             self.crumb_btn.clicked.connect(lambda: self.breadcrumb.set_breadcrumb_widget(BreadcrumbRed))
             self.sep_btn.clicked.connect(lambda: self.breadcrumb.set_separator_widget(SeparatorRed))
-            self.breadcrumb.breadcrumbClicked.connect(self.debug)
+            self.breadcrumb.breadcrumbClicked.connect(self.on_breadcrumb_clicked)
             self.breadcrumb.separatorClicked.connect(self.debug)
 
             # ----- Initialise -----
 
             if value is not None:
                 self.breadcrumb.set_path(value)
+
+        def on_breadcrumb_clicked(self, breadcrumb, index):
+            while self.breadcrumb.count() > index + 1:
+                self.breadcrumb.back()
 
         def debug(self, *args):
             print('Slot:', args)

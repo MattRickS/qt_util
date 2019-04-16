@@ -113,7 +113,7 @@ class BreadCrumbWidget(QtWidgets.QWidget):
         # type: (int) -> list[str]
         """ Returns the list of current breadcrumb names """
         total = self._layout.count()
-        end = total if end == -1 else max(total, (end + 1) * 2)
+        end = total if end == -1 else min(total, (end + 1) * 2)
         return [self._layout.itemAt(i).widget().text() for i in range(0, end, 2)]
 
     def set_alignment(self, alignment):
@@ -173,6 +173,78 @@ class BreadCrumbWidget(QtWidgets.QWidget):
 if __name__ == '__main__':
     import sys
     app = QtWidgets.QApplication(sys.argv)
+
+
+    class EditableBreadCrumb(BreadCrumb):
+        textChanged = QtCore.Signal(str)
+
+        def __init__(self, name):
+            super(EditableBreadCrumb, self).__init__(name)
+            self.line_edit = QtWidgets.QLineEdit(self)
+            self.line_edit.hide()
+            self.line_edit.editingFinished.connect(self.on_editing_finished)
+            self.clicked.connect(self.on_clicked)
+
+        # def setText(self, text):
+        #     super(EditableBreadCrumb, self).setText(text)
+        #     width = self.fontMetrics().width(text)
+        #     self.setFixedWidth(width + 10)
+
+        def on_editing_finished(self):
+            text = self.line_edit.text()
+            self.line_edit.blockSignals(True)
+            self.line_edit.setVisible(False)
+            self.line_edit.blockSignals(False)
+            if text != self.text():
+                self.setText(text)
+                self.textChanged.emit(text)
+
+        def on_clicked(self):
+            self.line_edit.resize(self.size())
+            self.line_edit.setVisible(True)
+            self.line_edit.setFocus()
+
+
+    class ContextWidget(BreadCrumbWidget):
+        EMPTY = '...'
+        contextChanged = QtCore.Signal(str)
+
+        def __init__(self, context=None):
+            super(ContextWidget, self).__init__()
+            self.set_breadcrumb_widget(EditableBreadCrumb)
+            self.set_separators_hidden(True)
+
+            if context is not None:
+                self.set_context(context)
+
+        def create_breadcrumb(self, name, index):
+            breadcrumb = super(ContextWidget, self).create_breadcrumb(name, index)
+            breadcrumb.textChanged.connect(self.on_breadcrumb_text_changed)
+            return breadcrumb
+
+        def set_path(self, path):
+            if len(path) < 4:
+                path.append(self.EMPTY)
+            super(ContextWidget, self).set_path(path)
+            self.contextChanged.emit(self.get_context())
+
+        def get_context(self):
+            path = self.get_path()
+            if path and path[-1] == self.EMPTY:
+                path = path[:-1]
+            return '/' + '/'.join(path)
+
+        def set_context(self, context):
+            path = context.strip('/').split('/')
+            self.set_path(path)
+
+        def on_breadcrumb_text_changed(self, text):
+            breadcrumb = self.sender()
+            index = self.layout().indexOf(breadcrumb)
+            if index == -1:
+                return
+            path = self.get_path(end=index // 2)
+            self.set_path(path)
 
 
     class Widget(QtWidgets.QWidget):
@@ -244,7 +316,8 @@ if __name__ == '__main__':
         def debug(self, *args):
             print('Slot:', args)
 
-    w = Widget(['one', 'two', 'three'])
+    # w = Widget(['one', 'two', 'three'])
+    w = ContextWidget('/pony/char/matt')
     w.show()
 
     app.exec_()

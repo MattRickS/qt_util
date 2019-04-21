@@ -76,11 +76,14 @@ class TreeModel(QtCore.QAbstractItemModel):
         for parent, children in mapping.items():
             parent_index = self.index_for_node(parent)
             # The given nodes may not be sequential. Group them into sequential
-            # indices and remove each batch in a separate begin/end context
+            # indices and remove each batch in a separate begin/end context.
+            # Ensure all indexes are iterated in reverse to avoid modifying
+            # list length during iteration
             index_mapping = {child.row(): child for child in children}
-            for _, grp in groupby(sorted(index_mapping), key=lambda x, y=count(): x - next(y)):
+            for _, grp in groupby(sorted(index_mapping, reverse=True),
+                                  key=lambda x, y=count(): x + next(y)):
                 indices = tuple(grp)
-                start, end = indices[0], indices[-1]
+                end, start = indices[0], indices[-1]
                 self.beginRemoveRows(parent_index, start, end)
                 for i in range(end, start - 1, -1):
                     child = index_mapping[i]

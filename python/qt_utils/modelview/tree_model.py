@@ -67,10 +67,16 @@ class TreeModel(QtCore.QAbstractItemModel):
     def remove_nodes(self, nodes):
         # type: (list[tree_node.TreeNode]) -> None
         """ Removes all the given nodes from the tree """
-        # Group nodes to remove by their parent node
+        # Group nodes to remove by their parent node. If any nodes have an
+        # ancestor who is also being removed, there is no need to explicitly
+        # remove it as it will be implicitly removed when the ancestor is.
         mapping = defaultdict(list)
         for n in nodes:
-            mapping[n.parent].append(n)
+            for ancestor in n.ancestors():
+                if ancestor in nodes:
+                    break
+            else:
+                mapping[n.parent].append(n)
 
         # Iterate over the mapping to remove each group of nodes separately
         for parent, children in mapping.items():

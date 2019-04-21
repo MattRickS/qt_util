@@ -7,9 +7,9 @@ class TreeNode(object):
     TreeNode's are represented by a name, and may or may not contain a custom
     object accessed via `internal_item`
     """
-    def __init__(self, name, parent=None, internal_item=None):
-        # type: (str, TreeNode, int) -> None
-        self._name = str(name)
+    def __init__(self, name, internal_item=None, parent=None):
+        # type: (str, object, TreeNode) -> None
+        self.name = str(name)
         self.internal_item = internal_item
         self._children = []
         self._parent = None  # type: TreeNode
@@ -18,8 +18,8 @@ class TreeNode(object):
             parent.add_child(self)
 
     def __repr__(self):
-        return 'TreeNode({!r}, parent={!r}, internal_item={!r})'.format(
-            self._name, self._parent, self.internal_item)
+        return 'TreeNode({!r}, internal_item={!r}, parent={!r})'.format(
+            self.name, self.internal_item, self._parent)
 
     def __str__(self):
         return self.path
@@ -29,12 +29,6 @@ class TreeNode(object):
         # type: () -> list[TreeNode]
         """ Returns a copy of the list of child nodes """
         return self._children[:]
-
-    @property
-    def name(self):
-        # type: () -> str
-        """ Name of the node """
-        return self._name
 
     @property
     def parent(self):
@@ -131,7 +125,7 @@ class TreeNode(object):
     def to_string(self, level=0):
         # type: (int) -> str
         """ Returns a string representing the node's sub-hierarchy """
-        s = '. ' * level + '{!r} {!r}'.format(self._name, self.internal_item) + '\n'
+        s = '. ' * level + '{!r} {!r}'.format(self.name, self.internal_item) + '\n'
         for child in self._children:
             s += child.to_string(level + 1)
         return s

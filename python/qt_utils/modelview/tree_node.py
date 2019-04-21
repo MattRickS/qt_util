@@ -22,7 +22,7 @@ class TreeNode(object):
             self.name, self.internal_item, self._parent)
 
     def __str__(self):
-        return self.path
+        return '.'.join((n.name for n in self.hierarchy()))
 
     @property
     def children(self):
@@ -35,12 +35,6 @@ class TreeNode(object):
         # type: () -> TreeNode
         """ The parent node or None if this is the root node """
         return self._parent
-
-    @property
-    def path(self):
-        # type: () -> str
-        """ Dot joined string for all nodes from root to the current node """
-        return '.'.join((n.name for n in self.hierarchy()))
 
     def add_child(self, node):
         # type: (TreeNode) -> None

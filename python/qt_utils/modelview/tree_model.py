@@ -78,11 +78,11 @@ class TreeModel(QtCore.QAbstractItemModel):
             # The given nodes may not be sequential. Group them into sequential
             # indices and remove each batch in a separate begin/end context
             index_mapping = {child.row(): child for child in children}
-            for _, grp in groupby(sorted(index_mapping), key=lambda x, y=count(): next(y) + x):
+            for _, grp in groupby(sorted(index_mapping), key=lambda x, y=count(): x - next(y)):
                 indices = tuple(grp)
                 start, end = indices[0], indices[-1]
                 self.beginRemoveRows(parent_index, start, end)
-                for i in range(start, end + 1):
+                for i in range(end, start - 1, -1):
                     child = index_mapping[i]
                     parent.remove_node(child)
                 self.endRemoveRows()
@@ -194,8 +194,8 @@ if __name__ == '__main__':
             self.model.set_root_node(root)
 
         def on_add_clicked(self):
-            nodes = [index.internalPointer() for index in self.view.selectedIndexes() if
-                     index.isValid()]
+            nodes = [index.internalPointer() for index in self.view.selectedIndexes()
+                     if index.isValid()]
             for node in nodes:
                 self.model.insert_nodes(
                     node,
@@ -208,8 +208,8 @@ if __name__ == '__main__':
                 )
 
         def on_sub_clicked(self):
-            nodes = [index.internalPointer() for index in self.view.selectedIndexes() if
-                     index.isValid()]
+            nodes = [index.internalPointer() for index in self.view.selectedIndexes()
+                     if index.isValid()]
             self.model.remove_nodes(nodes)
 
 

@@ -10,8 +10,13 @@ class Connection(object):
 class Connector(QtWidgets.QGraphicsEllipseItem):
     Radius = 7
 
-    def __init__(self, x=0, y=0, size=Radius*2):
-        super(Connector, self).__init__(x, y, size, size)
+    def __init__(self, x=0, y=0, radius=Radius):
+        super(Connector, self).__init__(
+            x - radius,
+            y - radius,
+            radius * 2,
+            radius * 2,
+        )
         self.setAcceptHoverEvents(True)
 
     def paint(self, painter, option, widget):
@@ -23,6 +28,155 @@ class Connector(QtWidgets.QGraphicsEllipseItem):
         painter.setBrush(QtGui.QBrush(colour))
         painter.drawEllipse(self.boundingRect())
         painter.restore()
+
+
+from itertools import zip_longest
+
+
+class NodeConnector(QtWidgets.QGraphicsEllipseItem):
+    Radius = 7
+
+    def __init__(self, name, direction, x=0, y=0, radius=Radius, parent=None):
+        super(NodeConnector, self).__init__(
+            x - radius,
+            y - radius,
+            radius * 2,
+            radius * 2,
+            parent
+        )
+        self.setAcceptHoverEvents(True)
+        self.name = name
+        self.direction = direction
+
+    def paint(self, painter, option, widget):
+        painter.save()
+        if option.state & (QtWidgets.QStyle.State_MouseOver | QtWidgets.QStyle.State_Selected):
+            colour = QtGui.QColor("#FFDDDD")
+        else:
+            colour = QtGui.QColor("#DDFFDD")
+        painter.setBrush(QtGui.QBrush(colour))
+        painter.drawEllipse(self.boundingRect())
+        painter.restore()
+
+
+class NodeItemBack(QtWidgets.QGraphicsItem):
+    Width = 100
+    HeaderHeight = 30
+    AttrHeight = 20
+    # FooterHeight = 10
+    Padding = 5
+
+    def __init__(self, name, inputs=(), outputs=(), parent=None):
+        super(NodeItemBack, self).__init__(parent)
+        self.setAcceptHoverEvents(True)
+        self.name = name
+        self.inputs = inputs
+        self.outputs = outputs
+        # TODO: Enable paint caching?
+
+        self._height = (
+            max(len(self.inputs), len(self.outputs)) * self.AttrHeight
+            + self.HeaderHeight
+            # + self.FooterHeight
+        )
+
+    def boundingRect(self):
+        return QtCore.QRect(0, 0, self.Width, self._height)
+
+    def shape(self):
+        path = QtGui.QPainterPath()
+        path.addRect(self.boundingRect())
+        return path
+
+    def paint(self, painter, option, widget):
+        # type: (QtGui.QPainter, QtWidgets.QStyleOptionGraphicsItem , QtWidgets.QWidget) -> None
+        painter.save()
+
+        if option.state & (QtWidgets.QStyle.State_MouseOver | QtWidgets.QStyle.State_Selected):
+            colour = QtGui.QColor("#FFDDDD")
+        else:
+            colour = QtGui.QColor("#DDFFDD")
+        painter.setBrush(QtGui.QBrush(colour))
+
+        # Header
+        rect = self.boundingRect()
+        painter.drawRect(rect)
+
+        fm = QtGui.QFontMetrics(painter.font())
+        painter.drawText(
+            (rect.width() - fm.width(self.name)) * 0.5,
+            fm.height(),
+            self.name,
+            )
+
+        # Attributes
+        offset = self.AttrHeight - (self.AttrHeight - fm.height()) * 0.5
+        height = self.HeaderHeight
+        # midline = self.Width // 2
+        # painter.drawLine(
+        #     midline,
+        #     height,
+        #     midline,
+        #     self._height
+        #     # - self.FooterHeight,
+        # )
+        for input_name, output_name in zip_longest(self.inputs, self.outputs):
+            painter.drawLine(0, height, self.Width, height)
+            if input_name == output_name:
+                painter.drawText(
+                    (rect.width() - fm.width(input_name)) * 0.5,
+                    height + offset,
+                    input_name
+                )
+            else:
+                if input_name is not None:
+                    painter.drawText(
+                        self.Padding + NodeConnector.Radius,
+                        height + offset,
+                        input_name,
+                    )
+                if output_name is not None:
+                    painter.drawText(
+                        rect.width() - fm.width(output_name) - self.Padding - NodeConnector.Radius,
+                        height + offset,
+                        output_name,
+                        )
+            height += self.AttrHeight
+
+        # Footer
+        # painter.drawLine(0, height, self.Width, height)
+
+        painter.restore()
+
+
+class NodeItemB(QtWidgets.QGraphicsItemGroup):
+    def __init__(self, name, inputs=(), outputs=(), parent=None):
+        super(NodeItemB, self).__init__(parent)
+        self.setFlag(QtWidgets.QGraphicsItem.ItemIsMovable, True)
+
+        self.node = NodeItemBack(name, inputs=inputs, outputs=outputs, parent=self)
+        self.addToGroup(self.node)
+
+        height = NodeItemBack.HeaderHeight + NodeItemBack.AttrHeight // 2
+        for input_name, output_name in zip_longest(inputs, outputs):
+            if input_name is not None:
+                connector = NodeConnector(
+                    input_name,
+                    Connection.Left,
+                    y=height,
+                    parent=self,
+                )
+                self.addToGroup(connector)
+            if output_name is not None:
+                connector = NodeConnector(
+                    output_name,
+                    Connection.Right,
+                    x=NodeItemBack.Width,
+                    y=height,
+                    parent=self,
+                )
+                self.addToGroup(connector)
+            height += NodeItemBack.AttrHeight
 
 
 class TextBox(QtWidgets.QGraphicsRectItem):
@@ -75,25 +229,25 @@ class Attribute(QtWidgets.QGraphicsItemGroup):
         )
         self.addToGroup(self._text_box)
 
-        y = int((self.Height - Connector.Radius * 2) * 0.5)
+        y = self.Height // 2
 
         self._connectors = {}
         if connection & Connection.Left:
-            connector = Connector(x=-Connector.Radius, y=y)
+            connector = Connector(x=0, y=y)
             self._connectors[Connection.Left] = connector
             self.addToGroup(connector)
         if connection & Connection.Right:
-            connector = Connector(x=width - Connector.Radius, y=y)
+            connector = Connector(x=width, y=y)
             self._connectors[Connection.Right] = connector
             self.addToGroup(connector)
 
 
-class NodeItem(QtWidgets.QGraphicsItemGroup):
+class NodeItemA(QtWidgets.QGraphicsItemGroup):
     Width = 100
     HeaderHeight = 30
 
     def __init__(self, name, inputs=(), outputs=(), bidirectional=(), parent=None):
-        super(NodeItem, self).__init__(parent)
+        super(NodeItemA, self).__init__(parent)
         self.setFlag(QtWidgets.QGraphicsItem.ItemIsMovable, True)
 
         self._header = TextBox(name, QtCore.QRect(0, 0, self.Width, self.HeaderHeight))
@@ -119,7 +273,7 @@ class Widget(QtWidgets.QWidget):
         super(Widget, self).__init__(parent)
 
         items = [
-            NodeItem("NodeA", inputs=("one", "two"), outputs=("three",), bidirectional=("four",)),
+            NodeItemA("NodeItemA", inputs=("one", "two"), outputs=("three",), bidirectional=("four",)),
         ]
 
         # ----- Widgets -----
@@ -127,6 +281,9 @@ class Widget(QtWidgets.QWidget):
         self.scene = QtWidgets.QGraphicsScene(self)
         for item in items:
             self.scene.addItem(item)
+        self.scene.addItem(
+            NodeItemB("NodeItemB", inputs=("four", "one", "two"), outputs=("four", "three",))
+        )
 
         self.view = QtWidgets.QGraphicsView()
         self.view.setScene(self.scene)

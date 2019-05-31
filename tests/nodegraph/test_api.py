@@ -39,3 +39,15 @@ def test_port():
     assert port2.get_connection_count() == 1
     assert port1.get_connected_by_index(0) == port2
     assert port2.get_connected_by_index(0) == port1
+
+
+def test_scene():
+    scene = api.Scene()
+    node1 = scene.create_node("Node", "node")
+    assert node1.name == "node"
+    assert scene.get_node("node") == node1
+    node2 = scene.create_node("Node", "node")
+    assert node2.name == "node1"
+    assert scene.get_node("node1") == node2
+
+    assert set(scene.list_nodes()) == {node1, node2}

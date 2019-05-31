@@ -149,6 +149,13 @@ class Scene(object):
         # type: (str) -> Node
         return self._nodes[name]
 
+    def list_nodes(self, node_type=None):
+        # type: (str) -> list[Node]
+        if node_type is not None:
+            return [node for node in self._nodes.values() if node.type() == node_type]
+        else:
+            return list(self._nodes.values())
+
 
 def register_node_type(node_type, node_class):
     # type: (str, types.Type[Node]) -> None

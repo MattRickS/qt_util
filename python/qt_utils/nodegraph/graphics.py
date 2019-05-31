@@ -5,12 +5,6 @@ from PySide2 import QtCore, QtGui, QtWidgets
 from qt_utils.nodegraph import api
 
 
-class Connection(object):
-    Left = 1
-    Right = 2
-    Both = Left | Right
-
-
 class PortItem(QtWidgets.QGraphicsItem):
     Radius = 6
 
@@ -65,14 +59,15 @@ class _NodeItem(QtWidgets.QGraphicsItem):
         self._node = node
         # TODO: Enable paint caching?
 
-        self._height = (
-                max(node.get_input_count(), node.get_output_count()) * _NodeItem.AttrHeight
-                + self.HeaderHeight
-        )
-
     def boundingRect(self):
         # type: () -> QtCore.QRect
-        return QtCore.QRect(0, 0, _NodeItem.Width, self._height)
+        num_attrs = max(self._node.get_input_count(), self._node.get_output_count())
+        return QtCore.QRect(
+            0,
+            0,
+            _NodeItem.Width,
+            num_attrs * _NodeItem.AttrHeight + self.HeaderHeight,
+        )
 
     def shape(self):
         # type: () -> QtGui.QPainterPath
@@ -95,9 +90,10 @@ class _NodeItem(QtWidgets.QGraphicsItem):
         painter.drawRect(rect)
 
         fm = QtGui.QFontMetrics(painter.font())
+        text_height = _NodeItem.HeaderHeight - (_NodeItem.HeaderHeight - fm.height()) * 0.5
         painter.drawText(
             (rect.width() - fm.width(self._node.name)) * 0.5,
-            fm.height(),
+            text_height,
             self._node.name,
         )
 
@@ -166,7 +162,7 @@ class Widget(QtWidgets.QWidget):
         node.add_input_port("input_1")
         node.add_output_port("output_0")
         node.add_output_port("output_1")
-        node.add_output_port("output_3")
+        node.add_output_port("output_2")
         self.scene.addItem(NodeItem(node))
 
         self.view = QtWidgets.QGraphicsView()

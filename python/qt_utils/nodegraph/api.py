@@ -1,4 +1,8 @@
 import re
+import types
+
+
+NODE_TYPES = {}
 
 
 class Port(object):
@@ -34,9 +38,10 @@ class Port(object):
 
 
 class Node(object):
-    def __init__(self, name):
-        # type: (str) -> None
+    def __init__(self, node_type, name):
+        # type: (str, str) -> None
         self._name = name
+        self._type = node_type
         self._inputs = []
         self._outputs = []
 
@@ -106,13 +111,19 @@ class Node(object):
         # type: (Port) -> None
         self._outputs.remove(port)
 
+    def type(self):
+        # type: () -> str
+        return self._type
+
 
 class Scene(object):
     def __init__(self):
         self._nodes = {}
 
-    def create_node(self, name):
-        # type: (str) -> Node
+    def create_node(self, node_type, name):
+        # type: (str, str) -> Node
+        node_class = NODE_TYPES[node_type]
+
         # Scan for existing names and increment the number
         num = -1
         pattern = "^{}(\d+)?$".format(name)
@@ -124,7 +135,7 @@ class Scene(object):
         if num > -1:
             name = "{}{}".format(name, num + 1)
 
-        node = Node(name)
+        node = node_class(name)
         self._nodes[name] = node
         return node
 
@@ -133,7 +144,26 @@ class Scene(object):
         return self._nodes[name]
 
 
+def register_node_type(node_type, node_class):
+    # type: (str, types.Type[Node]) -> None
+    if node_type in NODE_TYPES:
+        raise ValueError("Node type already registered: {}".format(node_type))
+    if Node not in node_class.mro():
+        raise TypeError("Node class must inherit from Node")
+    NODE_TYPES[node_type] = node_class
+
+
 if __name__ == '__main__':
+    class EntityNode(Node):
+        Type = "Entity"
+
+        def __init__(self, name):
+            super(EntityNode, self).__init__(self.Type, name)
+            self.add_input_port("inputs")
+            self.add_output_port("used")
+
+    register_node_type(EntityNode.Type, EntityNode)
+
     # n1 = Node("one")
     # n1.add_input_port("i1")
     # n1.add_input_port("i2")
@@ -153,7 +183,7 @@ if __name__ == '__main__':
     # print(n2)
 
     s = Scene()
-    n = s.create_node("one")
+    n = s.create_node(EntityNode.Type, "one")
     print(n)
-    n = s.create_node("one")
+    n = s.create_node(EntityNode.Type, "one")
     print(n)

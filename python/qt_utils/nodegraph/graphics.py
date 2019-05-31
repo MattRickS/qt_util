@@ -5,6 +5,9 @@ from PySide2 import QtCore, QtGui, QtWidgets
 from qt_utils.nodegraph import api
 
 
+FLAG_STATES = QtWidgets.QStyle.State_MouseOver | QtWidgets.QStyle.State_Selected
+
+
 class PortItem(QtWidgets.QGraphicsItem):
     Radius = 6
 
@@ -37,7 +40,7 @@ class PortItem(QtWidgets.QGraphicsItem):
     def paint(self, painter, option, widget):
         # type: (QtGui.QPainter, QtWidgets.QStyleOptionGraphicsItem , QtWidgets.QWidget) -> None
         painter.save()
-        if option.state & (QtWidgets.QStyle.State_MouseOver | QtWidgets.QStyle.State_Selected):
+        if option.state & FLAG_STATES:
             colour = QtGui.QColor("#FFDDDD")
         else:
             colour = QtGui.QColor("#DDFFDD")
@@ -79,7 +82,7 @@ class _NodeItem(QtWidgets.QGraphicsItem):
         # type: (QtGui.QPainter, QtWidgets.QStyleOptionGraphicsItem , QtWidgets.QWidget) -> None
         painter.save()
 
-        if option.state & (QtWidgets.QStyle.State_MouseOver | QtWidgets.QStyle.State_Selected):
+        if option.state & FLAG_STATES:
             colour = QtGui.QColor("#FFDDDD")
         else:
             colour = QtGui.QColor("#DDFFDD")
@@ -98,20 +101,22 @@ class _NodeItem(QtWidgets.QGraphicsItem):
         )
 
         # Attributes
-        offset = _NodeItem.AttrHeight - (_NodeItem.AttrHeight - fm.height()) * 0.5
         height = _NodeItem.HeaderHeight
-        for input_port, output_port in zip_longest(self._node.list_inputs(), self._node.list_outputs()):
+        height_offset = _NodeItem.AttrHeight - (_NodeItem.AttrHeight - fm.height()) * 0.5
+        output_offset = rect.width() - _NodeItem.Padding - PortItem.Radius
+        inputs, outputs = self._node.list_inputs(), self._node.list_outputs()
+        for input_port, output_port in zip_longest(inputs, outputs):
             painter.drawLine(0, height, _NodeItem.Width, height)
             if input_port is not None:
                 painter.drawText(
                     self.Padding + PortItem.Radius,
-                    height + offset,
+                    height + height_offset,
                     input_port.name,
                 )
             if output_port is not None:
                 painter.drawText(
-                    rect.width() - fm.width(output_port.name) - _NodeItem.Padding - PortItem.Radius,
-                    height + offset,
+                    output_offset - fm.width(output_port.name),
+                    height + height_offset,
                     output_port.name,
                 )
             height += _NodeItem.AttrHeight
@@ -131,7 +136,8 @@ class NodeItem(QtWidgets.QGraphicsItemGroup):
         self.addToGroup(self._item)
 
         height = _NodeItem.HeaderHeight + _NodeItem.AttrHeight // 2
-        for input_port, output_port in zip_longest(node.list_inputs(), node.list_outputs()):
+        inputs, outputs = node.list_inputs(), node.list_outputs()
+        for input_port, output_port in zip_longest(inputs, outputs):
             if input_port is not None:
                 port = PortItem(input_port, parent=self)
                 port.setPos(0, height)
@@ -157,7 +163,7 @@ class Widget(QtWidgets.QWidget):
 
         self.scene = QtWidgets.QGraphicsScene(self)
 
-        node = api.Node("NodeItem")
+        node = api.Node("Node", "NodeItem")
         node.add_input_port("input_0")
         node.add_input_port("input_1")
         node.add_output_port("output_0")

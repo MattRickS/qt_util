@@ -29,12 +29,18 @@ class Port(object):
         # type: (Port) -> None
         if port in self._connected:
             return
+        if port.node == self:
+            raise ValueError("Cannot connect a port to it's own node")
         self._connected.append(port)
         port._connected.append(self)
 
     def get_connected_by_index(self, index):
         # type: (int) -> Port
         return self._connected[index]
+
+    def get_connection_count(self):
+        # type: () -> int
+        return len(self._connected)
 
 
 class Node(object):
@@ -135,7 +141,7 @@ class Scene(object):
         if num > -1:
             name = "{}{}".format(name, num + 1)
 
-        node = node_class(name)
+        node = node_class(node_type, name)
         self._nodes[name] = node
         return node
 
@@ -153,12 +159,15 @@ def register_node_type(node_type, node_class):
     NODE_TYPES[node_type] = node_class
 
 
+register_node_type("Node", Node)
+
+
 if __name__ == '__main__':
     class EntityNode(Node):
         Type = "Entity"
 
-        def __init__(self, name):
-            super(EntityNode, self).__init__(self.Type, name)
+        def __init__(self, node_type, name):
+            super(EntityNode, self).__init__(node_type, name)
             self.add_input_port("inputs")
             self.add_output_port("used")
 

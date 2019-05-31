@@ -89,11 +89,11 @@ class Node(object):
 
     def list_inputs(self):
         # type: () -> list[str]
-        return [port.name for port in self._inputs]
+        return self._inputs[:]
 
     def list_outputs(self):
         # type: () -> list[str]
-        return [port.name for port in self._outputs]
+        return self._outputs[:]
 
     def remove_input_port(self, port):
         # type: (Port) -> None

@@ -2,7 +2,7 @@ from itertools import zip_longest
 
 from PySide2 import QtCore, QtGui, QtWidgets
 
-from qt_utils.graphics import api
+from qt_utils.nodegraph import api
 
 
 class Connection(object):
@@ -11,22 +11,37 @@ class Connection(object):
     Both = Left | Right
 
 
-class PortItem(QtWidgets.QGraphicsEllipseItem):
+class PortItem(QtWidgets.QGraphicsItem):
     Radius = 6
 
-    def __init__(self, name, direction, x=0, y=0, radius=Radius, parent=None):
-        super(PortItem, self).__init__(
-            x - radius,
-            y - radius,
-            radius * 2,
-            radius * 2,
-            parent
-        )
+    def __init__(self, port, parent=None):
+        # type: (api.Port, QtWidgets.QGraphicsItem) -> None
+        super(PortItem, self).__init__(parent)
         self.setAcceptHoverEvents(True)
-        self.name = name
-        self.direction = direction
+        self._port = port
+
+    @property
+    def port(self):
+        # type: () -> api.Port
+        return self._port
+
+    def boundingRect(self):
+        # type: () -> QtCore.QRect
+        return QtCore.QRect(
+            -PortItem.Radius,
+            -PortItem.Radius,
+            PortItem.Radius * 2,
+            PortItem.Radius * 2,
+        )
+
+    def shape(self):
+        # type: () -> QtGui.QPainterPath
+        path = QtGui.QPainterPath()
+        path.addEllipse(self.boundingRect())
+        return path
 
     def paint(self, painter, option, widget):
+        # type: (QtGui.QPainter, QtWidgets.QStyleOptionGraphicsItem , QtWidgets.QWidget) -> None
         painter.save()
         if option.state & (QtWidgets.QStyle.State_MouseOver | QtWidgets.QStyle.State_Selected):
             colour = QtGui.QColor("#FFDDDD")
@@ -44,6 +59,7 @@ class _NodeItem(QtWidgets.QGraphicsItem):
     Padding = 5
 
     def __init__(self, node, parent=None):
+        # type: (api.Node, QtWidgets.QGraphicsItem) -> None
         super(_NodeItem, self).__init__(parent)
         self.setAcceptHoverEvents(True)
         self._node = node
@@ -55,9 +71,11 @@ class _NodeItem(QtWidgets.QGraphicsItem):
         )
 
     def boundingRect(self):
+        # type: () -> QtCore.QRect
         return QtCore.QRect(0, 0, _NodeItem.Width, self._height)
 
     def shape(self):
+        # type: () -> QtGui.QPainterPath
         path = QtGui.QPainterPath()
         path.addRect(self.boundingRect())
         return path
@@ -81,25 +99,25 @@ class _NodeItem(QtWidgets.QGraphicsItem):
             (rect.width() - fm.width(self._node.name)) * 0.5,
             fm.height(),
             self._node.name,
-            )
+        )
 
         # Attributes
         offset = _NodeItem.AttrHeight - (_NodeItem.AttrHeight - fm.height()) * 0.5
         height = _NodeItem.HeaderHeight
-        for input_name, output_name in zip_longest(self._node.list_inputs(), self._node.list_outputs()):
+        for input_port, output_port in zip_longest(self._node.list_inputs(), self._node.list_outputs()):
             painter.drawLine(0, height, _NodeItem.Width, height)
-            if input_name is not None:
+            if input_port is not None:
                 painter.drawText(
                     self.Padding + PortItem.Radius,
                     height + offset,
-                    input_name,
+                    input_port.name,
                 )
-            if output_name is not None:
+            if output_port is not None:
                 painter.drawText(
-                    rect.width() - fm.width(output_name) - _NodeItem.Padding - PortItem.Radius,
+                    rect.width() - fm.width(output_port.name) - _NodeItem.Padding - PortItem.Radius,
                     height + offset,
-                    output_name,
-                    )
+                    output_port.name,
+                )
             height += _NodeItem.AttrHeight
 
         painter.restore()
@@ -107,6 +125,7 @@ class _NodeItem(QtWidgets.QGraphicsItem):
 
 class NodeItem(QtWidgets.QGraphicsItemGroup):
     def __init__(self, node, parent=None):
+        # type: (api.Node, QtWidgets.QGraphicsItem) -> None
         super(NodeItem, self).__init__(parent)
         self.setAcceptHoverEvents(True)
         self.setFlag(QtWidgets.QGraphicsItem.ItemIsMovable, True)
@@ -116,64 +135,21 @@ class NodeItem(QtWidgets.QGraphicsItemGroup):
         self.addToGroup(self._item)
 
         height = _NodeItem.HeaderHeight + _NodeItem.AttrHeight // 2
-        for input_name, output_name in zip_longest(node.list_inputs(), node.list_outputs()):
-            if input_name is not None:
-                connector = PortItem(
-                    input_name,
-                    Connection.Left,
-                    y=height,
-                    parent=self,
-                )
-                self.addToGroup(connector)
-            if output_name is not None:
-                connector = PortItem(
-                    output_name,
-                    Connection.Right,
-                    x=_NodeItem.Width,
-                    y=height,
-                    parent=self,
-                )
-                self.addToGroup(connector)
+        for input_port, output_port in zip_longest(node.list_inputs(), node.list_outputs()):
+            if input_port is not None:
+                port = PortItem(input_port, parent=self)
+                port.setPos(0, height)
+                self.addToGroup(port)
+            if output_port is not None:
+                port = PortItem(output_port, parent=self)
+                port.setPos(_NodeItem.Width, height)
+                self.addToGroup(port)
             height += _NodeItem.AttrHeight
 
     @property
     def node(self):
+        # type: () -> api.Node
         return self._node
-
-
-class TextBox(QtWidgets.QGraphicsRectItem):
-    Padding = 5
-
-    def __init__(self, name, rect, alignment=Connection.Both, padding=Padding):
-        super(TextBox, self).__init__(rect)
-        self.setAcceptHoverEvents(True)
-        self.name = name
-        self._alignment = alignment
-        self._padding = padding
-
-    def paint(self, painter, option, widget):
-        painter.save()
-        if option.state & (QtWidgets.QStyle.State_MouseOver | QtWidgets.QStyle.State_Selected):
-            colour = QtGui.QColor("#FFDDDD")
-        else:
-            colour = QtGui.QColor("#DDFFDD")
-        painter.setBrush(QtGui.QBrush(colour))
-
-        rect = self.boundingRect()
-        painter.drawRect(rect)
-
-        fm = QtGui.QFontMetrics(painter.font())
-        if self._alignment == Connection.Left:
-            width = self._padding
-        elif self._alignment == Connection.Right:
-            width = rect.width() - fm.width(self.name) - self._padding
-        elif self._alignment == Connection.Both:
-            width = (rect.width() - fm.width(self.name)) * 0.5
-        else:
-            raise ValueError("Invalid connection type: {}".format(self._alignment))
-        painter.drawText(width, fm.height(), self.name)
-
-        painter.restore()
 
 
 class Widget(QtWidgets.QWidget):

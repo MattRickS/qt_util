@@ -1,3 +1,6 @@
+import re
+
+
 class Port(object):
     def __init__(self, node, name):
         # type: (Node, str) -> None
@@ -104,21 +107,53 @@ class Node(object):
         self._outputs.remove(port)
 
 
+class Scene(object):
+    def __init__(self):
+        self._nodes = {}
+
+    def create_node(self, name):
+        # type: (str) -> Node
+        # Scan for existing names and increment the number
+        num = -1
+        pattern = "^{}(\d+)?$".format(name)
+        for node_name in self._nodes.keys():
+            match = re.match(pattern, node_name)
+            if match:
+                num = max(num, int(match.group(1) or 0))
+
+        if num > -1:
+            name = "{}{}".format(name, num + 1)
+
+        node = Node(name)
+        self._nodes[name] = node
+        return node
+
+    def get_node(self, name):
+        # type: (str) -> Node
+        return self._nodes[name]
+
+
 if __name__ == '__main__':
-    n1 = Node("one")
-    n1.add_input_port("i1")
-    n1.add_input_port("i2")
-    n1.add_output_port("o1")
+    # n1 = Node("one")
+    # n1.add_input_port("i1")
+    # n1.add_input_port("i2")
+    # n1.add_output_port("o1")
+    #
+    # n2 = Node("two")
+    # n2.add_input_port("i1")
+    # n2.add_output_port("o1")
+    #
+    # p1 = n1.get_output_by_index(0)
+    # p2 = n2.get_input_by_name("i1")
+    # p1.connect(p2)
+    #
+    # print(n1)
+    # print(p1)
+    # print(p2)
+    # print(n2)
 
-    n2 = Node("two")
-    n2.add_input_port("i1")
-    n2.add_output_port("o1")
-
-    p1 = n1.get_output_by_index(0)
-    p2 = n2.get_input_by_name("i1")
-    p1.connect(p2)
-
-    print(n1)
-    print(p1)
-    print(p2)
-    print(n2)
+    s = Scene()
+    n = s.create_node("one")
+    print(n)
+    n = s.create_node("one")
+    print(n)

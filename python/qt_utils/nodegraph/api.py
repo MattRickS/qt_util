@@ -6,14 +6,23 @@ NODE_TYPES = {}
 
 
 class Port(object):
-    def __init__(self, node, name):
-        # type: (Node, str) -> None
+    Output = 0
+    Input = 1
+
+    def __init__(self, node, name, direction):
+        # type: (Node, str, int) -> None
+        self._direction = direction
         self._node = node
         self._name = name
         self._connected = []
 
     def __repr__(self):
         return "{}({!r}, {!r})".format(self.__class__.__name__, self._node, self._name)
+
+    @property
+    def direction(self):
+        # type: () -> int
+        return self._direction
 
     @property
     def name(self):
@@ -61,13 +70,13 @@ class Node(object):
 
     def add_input_port(self, name):
         # type: (str) -> Port
-        port = Port(self, name)
+        port = Port(self, name, Port.Input)
         self._inputs.append(port)
         return port
 
     def add_output_port(self, name):
         # type: (str) -> Port
-        port = Port(self, name)
+        port = Port(self, name, Port.Output)
         self._outputs.append(port)
         return port
 
@@ -180,26 +189,11 @@ if __name__ == '__main__':
 
     register_node_type(EntityNode.Type, EntityNode)
 
-    # n1 = Node("one")
-    # n1.add_input_port("i1")
-    # n1.add_input_port("i2")
-    # n1.add_output_port("o1")
-    #
-    # n2 = Node("two")
-    # n2.add_input_port("i1")
-    # n2.add_output_port("o1")
-    #
-    # p1 = n1.get_output_by_index(0)
-    # p2 = n2.get_input_by_name("i1")
-    # p1.connect(p2)
-    #
-    # print(n1)
-    # print(p1)
-    # print(p2)
-    # print(n2)
-
     s = Scene()
     n = s.create_node(EntityNode.Type, "one")
     print(n)
-    n = s.create_node(EntityNode.Type, "one")
+    n = s.create_node("Node", "one")
     print(n)
+    print(s.list_nodes())
+    print(s.list_nodes(node_type="Node"))
+    print(s.list_nodes(node_type=EntityNode.Type))

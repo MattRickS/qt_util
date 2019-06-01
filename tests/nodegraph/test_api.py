@@ -27,12 +27,14 @@ def test_node():
 
 def test_port():
     node1 = api.Node("Node1", "node")
-    port1 = api.Port(node1, "port1")
+    port1 = api.Port(node1, "port1", api.Port.Input)
     assert port1.name == "port1"
     assert port1.node == node1
+    assert port1.direction == api.Port.Input
 
     node2 = api.Node("Node2", "node")
-    port2 = api.Port(node2, "port1")
+    port2 = api.Port(node2, "port1", api.Port.Output)
+    assert port2.direction == api.Port.Output
 
     port1.connect(port2)
     assert port1.get_connection_count() == 1

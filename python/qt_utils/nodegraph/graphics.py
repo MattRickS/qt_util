@@ -55,29 +55,36 @@ class PortItem(QtWidgets.QGraphicsItem):
         painter.restore()
 
     def dragEnterEvent(self, event):
-        event.setAccepted(True)
-        self._drag_over = True
-        # if event.mimeData().hasColor():
-        #     self._drag_over = True
-        #     self.update()
-        # else:
-        #     event.setAccepted(False)
+        mime = event.mimeData()
+        direction = str(mime.data("direction"))
+        if direction.isdigit() and int(direction) != self._port.direction:
+            event.setAccepted(True)
+            self._drag_over = True
+            self.update()
+        else:
+            event.setAccepted(False)
 
     def dragLeaveEvent(self, event):
         self._drag_over = False
         self.update()
 
     def dropEvent(self, event):
+        node_scene = self.scene().node_scene
+
         mime = event.mimeData()
-        print("{}.{}->{}.{}".format(
-            mime.data("node"),
-            mime.data("port"),
-            self._port.node.name,
-            self._port.name,
-        ))
+        node_name = str(mime.data("node"))
+        port_name = str(mime.data("port"))
+        # PySide2 uses it's own ByteArray object, cast to str to cast to int
+        direction = int(str(mime.data("direction")))
+
+        node = node_scene.get_node(node_name)
+        if direction == api.Port.Input:
+            port = node.get_input_by_name(port_name)
+        else:
+            port = node.get_output_by_name(port_name)
+
+        self._port.connect(port)
         self._drag_over = False
-        # if event.mimeData().hasColor():
-        #     color = qvariant_cast < QColor > (event->mimeData()->colorData());
         self.update()
 
     def mousePressEvent(self, event):
@@ -94,6 +101,7 @@ class PortItem(QtWidgets.QGraphicsItem):
         mime = QtCore.QMimeData()
         mime.setData("node", self._port.node.name)
         mime.setData("port", self._port.name)
+        mime.setData("direction", str(self._port.direction))
 
         drag.setMimeData(mime)
         drag.exec_()
@@ -127,6 +135,7 @@ class NodeItem(QtWidgets.QGraphicsItem):
 
     @property
     def node(self):
+        # type: () -> api.Node
         return self._node
 
     def boundingRect(self):
@@ -191,39 +200,36 @@ class NodeItem(QtWidgets.QGraphicsItem):
         painter.restore()
 
 
-class Widget(QtWidgets.QGraphicsView):
-    def __init__(self, parent=None):
-        # type: (QtWidgets.QWidget) -> None
-        super(Widget, self).__init__(parent)
+class GraphicsNodeScene(QtWidgets.QGraphicsScene):
+    def __init__(self, node_scene, parent=None):
+        super(GraphicsNodeScene, self).__init__(parent)
+        self._node_scene = node_scene
+        for node in self._node_scene.list_nodes():
+            self.addItem(NodeItem(node))
 
-        # ----- Widgets -----
-
-        self._scene = QtWidgets.QGraphicsScene(self)
-
-        node = api.Node("Node", "NodeItem1")
-        node.add_input_port("input_0")
-        node.add_input_port("input_1")
-        node.add_output_port("output_0")
-        node.add_output_port("output_1")
-        node.add_output_port("output_2")
-        self._scene.addItem(NodeItem(node))
-
-        node = api.Node("Node", "NodeItem2")
-        node.add_input_port("input_0")
-        node.add_input_port("input_1")
-        node.add_output_port("output_0")
-        node.add_output_port("output_1")
-        node.add_output_port("output_2")
-        self._scene.addItem(NodeItem(node))
-
-        self.setScene(self._scene)
+    @property
+    def node_scene(self):
+        # type: () -> api.Scene
+        return self._node_scene
 
 
 if __name__ == '__main__':
     import sys
     app = QtWidgets.QApplication(sys.argv)
 
-    w = Widget()
+    scene = api.Scene()
+
+    n1 = scene.create_node("Node", "NodeItem1")
+    n1.add_input_port("one")
+    n1.add_input_port("two")
+    n1.add_output_port("three")
+
+    n2 = scene.create_node("Node", "NodeItem2")
+    n2.add_input_port("one")
+    n2.add_output_port("two")
+
+    graphics_scene = GraphicsNodeScene(scene)
+    w = QtWidgets.QGraphicsView(graphics_scene)
     w.show()
 
     app.exec_()

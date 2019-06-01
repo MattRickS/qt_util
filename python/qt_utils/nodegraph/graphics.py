@@ -56,8 +56,13 @@ class PortItem(QtWidgets.QGraphicsItem):
 
     def dragEnterEvent(self, event):
         mime = event.mimeData()
+        node_name = str(mime.data("node"))
         direction = str(mime.data("direction"))
-        if direction.isdigit() and int(direction) != self._port.direction:
+        if (
+            node_name != self._port.node.name
+            and direction.isdigit()
+            and int(direction) != self._port.direction
+        ):
             event.setAccepted(True)
             self._drag_over = True
             self.update()
@@ -69,6 +74,7 @@ class PortItem(QtWidgets.QGraphicsItem):
         self.update()
 
     def dropEvent(self, event):
+        self.scene().end_noodle()
         node_scene = self.scene().node_scene
 
         mime = event.mimeData()
@@ -94,7 +100,11 @@ class PortItem(QtWidgets.QGraphicsItem):
         self.setCursor(QtCore.Qt.OpenHandCursor)
 
     def mouseMoveEvent(self, event):
-        if QtCore.QLineF(event.screenPos(), event.buttonDownScreenPos(QtCore.Qt.LeftButton)).length() < QtWidgets.QApplication.startDragDistance():
+        distance = QtCore.QLineF(
+            event.screenPos(),
+            event.buttonDownScreenPos(QtCore.Qt.LeftButton),
+        ).length()
+        if distance < QtWidgets.QApplication.startDragDistance():
             return
 
         drag = QtGui.QDrag(event.widget())
@@ -102,6 +112,8 @@ class PortItem(QtWidgets.QGraphicsItem):
         mime.setData("node", self._port.node.name)
         mime.setData("port", self._port.name)
         mime.setData("direction", str(self._port.direction))
+
+        self.scene().start_noodle(self.scenePos())
 
         drag.setMimeData(mime)
         drag.exec_()
@@ -140,7 +152,10 @@ class NodeItem(QtWidgets.QGraphicsItem):
 
     def boundingRect(self):
         # type: () -> QtCore.QRect
-        num_attrs = max(self._node.get_input_count(), self._node.get_output_count())
+        num_attrs = max(
+            self._node.get_input_count(),
+            self._node.get_output_count(),
+        )
         return QtCore.QRect(
             0,
             0,
@@ -207,10 +222,44 @@ class GraphicsNodeScene(QtWidgets.QGraphicsScene):
         for node in self._node_scene.list_nodes():
             self.addItem(NodeItem(node))
 
+        self._noodle = None
+
     @property
     def node_scene(self):
         # type: () -> api.Scene
         return self._node_scene
+
+    def start_noodle(self, pos):
+        self._noodle = QtWidgets.QGraphicsLineItem(
+            pos.x(),
+            pos.y(),
+            pos.x(),
+            pos.y(),
+        )
+        self.addItem(self._noodle)
+
+    def end_noodle(self):
+        if self._noodle is None:
+            return
+        self.removeItem(self._noodle)
+        self._noodle = None
+
+    def dragLeaveEvent(self, event):
+        super(GraphicsNodeScene, self).dragLeaveEvent(event)
+        if self._noodle is not None:
+            self.end_noodle()
+
+    def dragMoveEvent(self, event):
+        if self._noodle is None:
+            return
+        line = self._noodle.line()
+        self._noodle.setLine(
+            line.x1(),
+            line.y1(),
+            event.scenePos().x(),
+            event.scenePos().y(),
+        )
+        super(GraphicsNodeScene, self).dragMoveEvent(event)
 
 
 if __name__ == '__main__':

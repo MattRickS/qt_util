@@ -215,6 +215,20 @@ class NodeItem(QtWidgets.QGraphicsItem):
         painter.restore()
 
 
+class Noodle(QtWidgets.QGraphicsLineItem):
+    def __init__(self, *args, **kwargs):
+        super(Noodle, self).__init__(*args, **kwargs)
+        pen = QtGui.QPen()
+        pen.setWidth(2)
+        self.setPen(pen)
+        self.setZValue(-1)
+
+    def paint(self, painter, option, widget):
+        # type: (QtGui.QPainter, QtWidgets.QStyleOptionGraphicsItem , QtWidgets.QWidget) -> None
+        painter.setRenderHint(QtGui.QPainter.Antialiasing)
+        super(Noodle, self).paint(painter, option, widget)
+
+
 class GraphicsNodeScene(QtWidgets.QGraphicsScene):
     def __init__(self, node_scene, parent=None):
         super(GraphicsNodeScene, self).__init__(parent)
@@ -230,7 +244,7 @@ class GraphicsNodeScene(QtWidgets.QGraphicsScene):
         return self._node_scene
 
     def start_noodle(self, pos):
-        self._noodle = QtWidgets.QGraphicsLineItem(
+        self._noodle = Noodle(
             pos.x(),
             pos.y(),
             pos.x(),

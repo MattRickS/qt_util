@@ -88,15 +88,25 @@ class Port(object):
 
 
 class Node(object):
-    def __init__(self, node_type, name):
-        # type: (str, str) -> None
+    def __init__(self, node_type, name, identifier):
+        # type: (str, str, object) -> None
         self._name = name
         self._type = node_type
         self._inputs = []
         self._outputs = []
+        self._identifier = identifier
 
     def __repr__(self):
-        return "{}({!r})".format(self.__class__.__name__, self._name)
+        return "{}({!r}, {!r}, {!r})".format(
+            self.__class__.__name__,
+            self._type,
+            self._name,
+            self._identifier,
+        )
+
+    @property
+    def identifier(self):
+        return self._identifier
 
     @property
     def name(self):
@@ -178,8 +188,8 @@ class Scene(object):
     def __init__(self):
         self._nodes = {}
 
-    def create_node(self, node_type, name):
-        # type: (str, str) -> Node
+    def create_node(self, node_type, name, identifier=None):
+        # type: (str, str, object) -> Node
         node_class = NODE_TYPES[node_type]
 
         # Scan for existing names and increment the number
@@ -193,7 +203,15 @@ class Scene(object):
         if num > -1:
             name = "{}{}".format(name, num + 1)
 
-        node = node_class(node_type, name)
+        # If no custom identifier is used, use a unique integer ID
+        if identifier is None:
+            ids = [
+                n.identifier for n in self._nodes.values()
+                if isinstance(n.identifier, int)
+            ]
+            identifier = (max(ids) + 1) if ids else 0
+
+        node = node_class(node_type, name, identifier=identifier)
         self._nodes[name] = node
         return node
 
@@ -225,8 +243,8 @@ if __name__ == '__main__':
     class EntityNode(Node):
         Type = "Entity"
 
-        def __init__(self, node_type, name):
-            super(EntityNode, self).__init__(node_type, name)
+        def __init__(self, node_type, name, identifier=None):
+            super(EntityNode, self).__init__(node_type, name, identifier=identifier)
             self.add_input_port("inputs")
             self.add_output_port("used")
 

@@ -1,5 +1,6 @@
 import re
 import types
+import uuid
 
 NODE_TYPES = {}
 
@@ -203,13 +204,8 @@ class Scene(object):
         if num > -1:
             name = "{}{}".format(name, num + 1)
 
-        # If no custom identifier is used, use a unique integer ID
         if identifier is None:
-            ids = [
-                n.identifier for n in self._nodes.values()
-                if isinstance(n.identifier, int)
-            ]
-            identifier = (max(ids) + 1) if ids else 0
+            identifier = uuid.uuid4().hex
 
         node = node_class(node_type, name, identifier=identifier)
         self._nodes[name] = node

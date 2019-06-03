@@ -49,10 +49,11 @@ def test_scene():
     node1 = scene.create_node("Node", "node")
     assert node1.name == "node"
     assert scene.get_node("node") == node1
-    assert node1.identifier == 0
+
     node2 = scene.create_node("Node", "node")
     assert node2.name == "node1"
     assert scene.get_node("node1") == node2
-    assert node2.identifier == 1
+
+    assert node2.identifier != node1.identifier
 
     assert set(scene.list_nodes()) == {node1, node2}

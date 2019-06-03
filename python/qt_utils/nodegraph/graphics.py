@@ -150,6 +150,18 @@ class NodeItem(QtWidgets.QGraphicsItem):
         # type: () -> api.Node
         return self._node
 
+    def get_input_pos(self, index):
+        return self.mapToScene(QtCore.QPoint(
+            0,
+            NodeItem.HeaderHeight + NodeItem.AttrHeight // 2 + NodeItem.AttrHeight * index,
+        ))
+
+    def get_output_pos(self, index):
+        return self.mapToScene(QtCore.QPoint(
+            NodeItem.Width,
+            NodeItem.HeaderHeight + NodeItem.AttrHeight // 2 + NodeItem.AttrHeight * index,
+        ))
+
     def boundingRect(self):
         # type: () -> QtCore.QRect
         num_attrs = max(
@@ -233,8 +245,29 @@ class GraphicsNodeScene(QtWidgets.QGraphicsScene):
     def __init__(self, node_scene, parent=None):
         super(GraphicsNodeScene, self).__init__(parent)
         self._node_scene = node_scene
+
+        x = 0
+        self._node_mapping = {}
         for node in self._node_scene.list_nodes():
-            self.addItem(NodeItem(node))
+            item = NodeItem(node)
+            item.setPos(x, 0)
+            self.addItem(item)
+            self._node_mapping[node] = item
+            x += NodeItem.Width + 100
+
+        self._noodle_mapping = {}
+        for node, source_item in self._node_mapping.items():
+            for connection in node.list_connections():
+                target_item = self._node_mapping.get(connection.target.node)
+                if connection in self._noodle_mapping or target_item is None:
+                    continue
+                i = node.list_outputs().index(connection.source)
+                source_pos = source_item.get_output_pos(i)
+                i = target_item.node.list_inputs().index(connection.target)
+                target_pos = target_item.get_input_pos(i)
+                noodle = Noodle(source_pos.x(), source_pos.y(), target_pos.x(), target_pos.y())
+                self.addItem(noodle)
+                self._noodle_mapping[connection] = noodle
 
         self._noodle = None
 
@@ -285,11 +318,13 @@ if __name__ == '__main__':
     n1 = scene.create_node("Node", "NodeItem1")
     n1.add_input_port("one")
     n1.add_input_port("two")
-    n1.add_output_port("three")
+    out_port = n1.add_output_port("three")
 
     n2 = scene.create_node("Node", "NodeItem2")
-    n2.add_input_port("one")
+    in_port = n2.add_input_port("one")
     n2.add_output_port("two")
+
+    out_port.connect(in_port)
 
     graphics_scene = GraphicsNodeScene(scene)
     w = QtWidgets.QGraphicsView(graphics_scene)

@@ -1,8 +1,40 @@
 import re
 import types
 
-
 NODE_TYPES = {}
+
+
+class Connection(object):
+    def __init__(self, source, target):
+        # type: (Port, Port) -> None
+        self._source = source
+        self._target = target
+
+    def __repr__(self):
+        return "{}({}, {})".format(self.__class__.__name__, self._source, self._target)
+
+    def __str__(self):
+        return "{}<->{}".format(self._source, self._target)
+
+    def __eq__(self, other):
+        return (
+            isinstance(other, Connection)
+            and ((self._source == other.source and self._target == other.target)
+                 or (self._source == other.target and self._target == other.source))
+        )
+
+    def __hash__(self):
+        return hash(self._source) | hash(self._target)
+
+    @property
+    def source(self):
+        # type: () -> Port
+        return self._source
+
+    @property
+    def target(self):
+        # type: () -> Port
+        return self._target
 
 
 class Port(object):
@@ -18,6 +50,9 @@ class Port(object):
 
     def __repr__(self):
         return "{}({!r}, {!r})".format(self.__class__.__name__, self._node, self._name)
+
+    def __str__(self):
+        return "{}.{}".format(self.node.name, self._name)
 
     @property
     def direction(self):
@@ -109,6 +144,14 @@ class Node(object):
             if port.name == name:
                 return port
         raise KeyError("Node {!r} has no port named {!r}".format(self._name, name))
+
+    def list_connections(self):
+        connections = []
+        for port in self._inputs + self._outputs:
+            for i in range(port.get_connection_count()):
+                connection = Connection(port, port.get_connected_by_index(i))
+                connections.append(connection)
+        return connections
 
     def list_inputs(self):
         # type: () -> list[str]

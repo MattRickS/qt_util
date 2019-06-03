@@ -1,3 +1,5 @@
+import pytest
+
 from qt_utils.nodegraph import api
 
 
@@ -48,12 +50,18 @@ def test_scene():
     scene = api.Scene()
     node1 = scene.create_node("Node", "node")
     assert node1.name == "node"
-    assert scene.get_node("node") == node1
+    assert scene.get_node_by_name("node") == node1
 
     node2 = scene.create_node("Node", "node")
     assert node2.name == "node1"
-    assert scene.get_node("node1") == node2
+    assert scene.get_node_by_name("node1") == node2
 
     assert node2.identifier != node1.identifier
 
     assert set(scene.list_nodes()) == {node1, node2}
+
+    with pytest.raises(api.NodeError):
+        scene.create_node("Node", "node", identifier=node2.identifier)
+
+    with pytest.raises(api.NodeError):
+        scene.create_node("Node", "node", identifier=0)

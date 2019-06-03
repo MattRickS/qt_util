@@ -5,6 +5,10 @@ import uuid
 NODE_TYPES = {}
 
 
+class NodeError(Exception):
+    """ Errors raised with nodes """
+
+
 class Connection(object):
     def __init__(self, source, target):
         # type: (Port, Port) -> None
@@ -187,10 +191,23 @@ class Node(object):
 
 class Scene(object):
     def __init__(self):
-        self._nodes = {}
+        self._nodes = {}  # TODO: Change to weakref dictionary
+        self._identifiers = {}
 
     def create_node(self, node_type, name, identifier=None):
-        # type: (str, str, object) -> Node
+        # type: (str, str, str) -> Node
+        if identifier is None:
+            identifier = uuid.uuid4().hex
+        elif not isinstance(identifier, str):
+            raise NodeError(
+                "Identifier must be str, not {}".format(type(identifier))
+            )
+
+        if identifier in self._identifiers:
+            raise NodeError(
+                "Node with identifier {} already exists".format(identifier)
+            )
+
         node_class = NODE_TYPES[node_type]
 
         # Scan for existing names and increment the number
@@ -204,14 +221,16 @@ class Scene(object):
         if num > -1:
             name = "{}{}".format(name, num + 1)
 
-        if identifier is None:
-            identifier = uuid.uuid4().hex
-
         node = node_class(node_type, name, identifier=identifier)
         self._nodes[name] = node
+        self._identifiers[identifier] = node
         return node
 
-    def get_node(self, name):
+    def get_node_by_identifier(self, identifier):
+        # type: (str) -> Node
+        return self._identifiers[identifier]
+
+    def get_node_by_name(self, name):
         # type: (str) -> Node
         return self._nodes[name]
 
@@ -221,6 +240,11 @@ class Scene(object):
             return [node for node in self._nodes.values() if node.type() == node_type]
         else:
             return list(self._nodes.values())
+
+    def remove_node(self, node):
+        # type: (Node) -> None
+        self._nodes.pop(node.name)
+        self._identifiers.pop(node.identifier)
 
 
 def register_node_type(node_type, node_class):

@@ -1,6 +1,7 @@
 import re
 import types
 import uuid
+import weakref
 
 NODE_TYPES = {}
 
@@ -191,8 +192,8 @@ class Node(object):
 
 class Scene(object):
     def __init__(self):
-        self._nodes = {}  # TODO: Change to weakref dictionary
         self._identifiers = {}
+        self._names = weakref.WeakValueDictionary()
 
     def create_node(self, node_type, name, identifier=None):
         # type: (str, str, str) -> Node
@@ -213,7 +214,7 @@ class Scene(object):
         # Scan for existing names and increment the number
         num = -1
         pattern = "^{}(\d+)?$".format(name)
-        for node_name in self._nodes.keys():
+        for node_name in self._names.keys():
             match = re.match(pattern, node_name)
             if match:
                 num = max(num, int(match.group(1) or 0))
@@ -222,7 +223,7 @@ class Scene(object):
             name = "{}{}".format(name, num + 1)
 
         node = node_class(node_type, name, identifier=identifier)
-        self._nodes[name] = node
+        self._names[name] = node
         self._identifiers[identifier] = node
         return node
 
@@ -232,18 +233,18 @@ class Scene(object):
 
     def get_node_by_name(self, name):
         # type: (str) -> Node
-        return self._nodes[name]
+        return self._names[name]
 
     def list_nodes(self, node_type=None):
         # type: (str) -> list[Node]
         if node_type is not None:
-            return [node for node in self._nodes.values() if node.type() == node_type]
+            return [node for node in self._names.values() if node.type() == node_type]
         else:
-            return list(self._nodes.values())
+            return list(self._names.values())
 
     def remove_node(self, node):
         # type: (Node) -> None
-        self._nodes.pop(node.name)
+        self._names.pop(node.name)
         self._identifiers.pop(node.identifier)
 
 

@@ -83,7 +83,7 @@ class PortItem(QtWidgets.QGraphicsItem):
         # PySide2 uses it's own ByteArray object, cast to str to cast to int
         direction = int(str(mime.data("direction")))
 
-        node = node_scene.get_node(node_name)
+        node = node_scene.get_node_by_name(node_name)
         if direction == api.Port.Input:
             port = node.get_input_by_name(port_name)
         else:

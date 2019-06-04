@@ -1,9 +1,11 @@
+import json
+import os
 import re
 import types
 import uuid
 import weakref
 
-NODE_TYPES = {}
+_NODE_TYPE_REGISTRY = {}
 
 
 class NodeError(Exception):
@@ -94,8 +96,13 @@ class Port(object):
 
 
 class Node(object):
+    @classmethod
+    def deserialize(cls, data):
+        # type: (dict) -> Node
+        return cls(data["type"], data["name"], data["identifier"])
+
     def __init__(self, node_type, name, identifier):
-        # type: (str, str, object) -> None
+        # type: (str, str, str) -> None
         self._name = name
         self._type = node_type
         self._inputs = []
@@ -110,8 +117,18 @@ class Node(object):
             self._identifier,
         )
 
+    def __eq__(self, other):
+        return (
+            isinstance(other, self.__class__)
+            and other.identifier == self._identifier
+        )
+
+    def __hash__(self):
+        return hash(self._identifier)
+
     @property
     def identifier(self):
+        # type: () -> str
         return self._identifier
 
     @property
@@ -185,15 +202,40 @@ class Node(object):
         # type: (Port) -> None
         self._outputs.remove(port)
 
+    def serialize(self):
+        # type: () -> dict
+        return {
+            "name": self._name,
+            "type": self._type,
+            "identifier": self._identifier,
+        }
+
     def type(self):
         # type: () -> str
         return self._type
 
 
 class Scene(object):
-    def __init__(self):
-        self._identifiers = {}
-        self._names = weakref.WeakValueDictionary()
+    @classmethod
+    def load(cls, filepath):
+        with open(filepath) as f:
+            data = json.load(f)
+
+        nodes = {}
+        for node_data in data["nodes"]:
+            node_class = get_registered_node_type(node_data["type"])
+            node = node_class.deserialize(node_data)
+            nodes[node.identifier] = node
+
+        for connection in data["connections"]:
+            # TODO: Deserialize connection data by modifying nodes
+            pass
+
+        return cls(nodes.values())
+
+    def __init__(self, nodes=()):
+        self._identifiers = {n.identifier: n for n in nodes}
+        self._names = weakref.WeakValueDictionary({n.name: n for n in nodes})
 
     def create_node(self, node_type, name, identifier=None):
         # type: (str, str, str) -> Node
@@ -209,7 +251,7 @@ class Scene(object):
                 "Node with identifier {} already exists".format(identifier)
             )
 
-        node_class = NODE_TYPES[node_type]
+        node_class = _NODE_TYPE_REGISTRY[node_type]
 
         # Scan for existing names and increment the number
         num = -1
@@ -247,14 +289,32 @@ class Scene(object):
         self._names.pop(node.name)
         self._identifiers.pop(node.identifier)
 
+    def save(self, filepath):
+        # type: (str) -> None
+        directory = os.path.dirname(filepath)
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+
+        data = {
+            "nodes": [n.serialize() for n in self._identifiers.values()],
+            "connections": []  # TODO: serialize connection data
+        }
+        with open(filepath, "w") as f:
+            json.dump(data, f)
+
+
+def get_registered_node_type(node_type):
+    # type: (str) -> types.Type[Node]
+    return _NODE_TYPE_REGISTRY[node_type]
+
 
 def register_node_type(node_type, node_class):
     # type: (str, types.Type[Node]) -> None
-    if node_type in NODE_TYPES:
+    if node_type in _NODE_TYPE_REGISTRY:
         raise ValueError("Node type already registered: {}".format(node_type))
     if Node not in node_class.mro():
         raise TypeError("Node class must inherit from Node")
-    NODE_TYPES[node_type] = node_class
+    _NODE_TYPE_REGISTRY[node_type] = node_class
 
 
 register_node_type("Node", Node)
@@ -264,8 +324,8 @@ if __name__ == '__main__':
     class EntityNode(Node):
         Type = "Entity"
 
-        def __init__(self, node_type, name, identifier=None):
-            super(EntityNode, self).__init__(node_type, name, identifier=identifier)
+        def __init__(self, node_type, name, identifier):
+            super(EntityNode, self).__init__(node_type, name, identifier)
             self.add_input_port("inputs")
             self.add_output_port("used")
 
@@ -279,3 +339,8 @@ if __name__ == '__main__':
     print(s.list_nodes())
     print(s.list_nodes(node_type="Node"))
     print(s.list_nodes(node_type=EntityNode.Type))
+
+    data = n.serialize()
+    n2 = Node.deserialize(data)
+    print(n)
+    print(n2)

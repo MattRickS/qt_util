@@ -4,12 +4,15 @@ from qt_utils.nodegraph import api
 
 
 def test_node():
-    node = api.Node("Node", "node", 0)
+    node = api.Node("Node", "node", "0")
     assert node.name == "node"
     assert node.get_output_count() == 0
     assert node.get_input_count() == 0
     assert node.type() == "Node"
-    assert node.identifier == 0
+    assert node.identifier == "0"
+
+    data = node.serialize()
+    assert api.Node.deserialize(data) == node
 
     p = node.add_input_port("in_1")
     assert isinstance(p, api.Port)
@@ -29,13 +32,13 @@ def test_node():
 
 
 def test_port():
-    node1 = api.Node("Node1", "node", 0)
+    node1 = api.Node("Node1", "node", "0")
     port1 = api.Port(node1, "port1", api.Port.Input)
     assert port1.name == "port1"
     assert port1.node == node1
     assert port1.direction == api.Port.Input
 
-    node2 = api.Node("Node2", "node", 1)
+    node2 = api.Node("Node2", "node", "1")
     port2 = api.Port(node2, "port1", api.Port.Output)
     assert port2.direction == api.Port.Output
 

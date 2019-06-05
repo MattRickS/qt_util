@@ -20,11 +20,32 @@ class PortItem(QtWidgets.QGraphicsItem):
         self.setCursor(QtCore.Qt.OpenHandCursor)
         self._port = port
         self._drag_over = False
+        self._noodles = []
 
     @property
     def port(self):
         # type: () -> api.Port
         return self._port
+
+    def add_noodle(self, port_item):
+        items = (
+            (self, port_item)
+            if self._port.direction == api.Port.Input
+            else (port_item, self)
+        )
+        noodle = Noodle(*items)
+        self._noodles.append(noodle)
+        port_item._noodles.append(noodle)
+        self.scene().addItem(noodle)
+
+    def connect(self, port_item):
+        # type: (PortItem) -> None
+        self._port.connect(port_item.port)
+        self.add_noodle(port_item)
+
+    def redraw_noodles(self):
+        for noodle in self._noodles:
+            noodle.redraw()
 
     def boundingRect(self):
         # type: () -> QtCore.QRect
@@ -132,23 +153,41 @@ class NodeItem(QtWidgets.QGraphicsItem):
         self.setAcceptHoverEvents(True)
         self.setFlag(QtWidgets.QGraphicsItem.ItemIsMovable, True)
         self._node = node
+        self._items = {}
         # TODO: Enable paint caching?
 
         height = NodeItem.HeaderHeight + NodeItem.AttrHeight // 2
         inputs, outputs = node.list_inputs(), node.list_outputs()
         for input_port, output_port in zip_longest(inputs, outputs):
             if input_port is not None:
-                port = PortItem(input_port, parent=self)
-                port.setPos(0, height)
+                port_item = PortItem(input_port, parent=self)
+                port_item.setPos(0, height)
+                self._items[input_port] = port_item
             if output_port is not None:
-                port = PortItem(output_port, parent=self)
-                port.setPos(NodeItem.Width, height)
+                port_item = PortItem(output_port, parent=self)
+                port_item.setPos(NodeItem.Width, height)
+                self._items[output_port] = port_item
             height += NodeItem.AttrHeight
 
     @property
     def node(self):
         # type: () -> api.Node
         return self._node
+
+    @property
+    def input_items(self):
+        return self._input_items
+
+    @property
+    def output_items(self):
+        return self._output_items
+
+    def update_noodles(self):
+        pass
+
+    def get_port_item(self, port):
+        # type: (api.Port) -> PortItem
+        return self._items[port]
 
     def get_input_pos(self, index):
         return self.mapToScene(QtCore.QPoint(
@@ -226,48 +265,56 @@ class NodeItem(QtWidgets.QGraphicsItem):
 
         painter.restore()
 
+    def mouseMoveEvent(self, event):
+        for port_item in self._items.values():
+            port_item.redraw_noodles()
+        return super(NodeItem, self).mouseMoveEvent(event)
+
 
 class Noodle(QtWidgets.QGraphicsLineItem):
-    def __init__(self, *args, **kwargs):
-        super(Noodle, self).__init__(*args, **kwargs)
+    def __init__(self, source, target):
+        super(Noodle, self).__init__()
         pen = QtGui.QPen()
         pen.setWidth(2)
         self.setPen(pen)
         self.setZValue(-1)
+        self._source = source
+        self._target = target
+        self.redraw()
 
     def paint(self, painter, option, widget):
         # type: (QtGui.QPainter, QtWidgets.QStyleOptionGraphicsItem , QtWidgets.QWidget) -> None
         painter.setRenderHint(QtGui.QPainter.Antialiasing)
         super(Noodle, self).paint(painter, option, widget)
 
+    def redraw(self):
+        s = self._source.scenePos()
+        t = self._target.scenePos()
+        self.setLine(s.x(), s.y(), t.x(), t.y())
+
 
 class GraphicsNodeScene(QtWidgets.QGraphicsScene):
     def __init__(self, node_scene, parent=None):
         super(GraphicsNodeScene, self).__init__(parent)
         self._node_scene = node_scene
+        self._items = {}
 
         x = 0
-        self._node_mapping = {}
-        for node in self._node_scene.list_nodes():
+        for node in node_scene.list_nodes():
             item = NodeItem(node)
             item.setPos(x, 0)
-            self.addItem(item)
-            self._node_mapping[node] = item
             x += NodeItem.Width + 100
+            self._items[node.identifier] = item
+            self.addItem(item)
 
-        self._noodle_mapping = {}
-        for node, source_item in self._node_mapping.items():
-            for connection in node.list_connections():
-                target_item = self._node_mapping.get(connection.target.node)
-                if connection in self._noodle_mapping or target_item is None:
-                    continue
-                i = node.list_outputs().index(connection.source)
-                source_pos = source_item.get_output_pos(i)
-                i = target_item.node.list_inputs().index(connection.target)
-                target_pos = target_item.get_input_pos(i)
-                noodle = Noodle(source_pos.x(), source_pos.y(), target_pos.x(), target_pos.y())
-                self.addItem(noodle)
-                self._noodle_mapping[connection] = noodle
+            # Find other nodes in scene that exist and connect
+            for in_port, out_port in node.list_connections():
+                in_port, out_port = (in_port, out_port) if in_port.node == node else (out_port, in_port)
+                target_node_item = self._items.get(out_port.node.identifier)
+                if target_node_item is not None:
+                    source_port_item = item.get_port_item(in_port)
+                    target_port_item = target_node_item.get_port_item(out_port)
+                    source_port_item.add_noodle(target_port_item)
 
         self._noodle = None
 
@@ -276,37 +323,37 @@ class GraphicsNodeScene(QtWidgets.QGraphicsScene):
         # type: () -> api.Scene
         return self._node_scene
 
-    def start_noodle(self, pos):
-        self._noodle = Noodle(
-            pos.x(),
-            pos.y(),
-            pos.x(),
-            pos.y(),
-        )
-        self.addItem(self._noodle)
-
-    def end_noodle(self):
-        if self._noodle is None:
-            return
-        self.removeItem(self._noodle)
-        self._noodle = None
-
-    def dragLeaveEvent(self, event):
-        super(GraphicsNodeScene, self).dragLeaveEvent(event)
-        if self._noodle is not None:
-            self.end_noodle()
-
-    def dragMoveEvent(self, event):
-        if self._noodle is None:
-            return
-        line = self._noodle.line()
-        self._noodle.setLine(
-            line.x1(),
-            line.y1(),
-            event.scenePos().x(),
-            event.scenePos().y(),
-        )
-        super(GraphicsNodeScene, self).dragMoveEvent(event)
+    # def start_noodle(self, pos):
+    #     self._noodle = Noodle(
+    #         pos.x(),
+    #         pos.y(),
+    #         pos.x(),
+    #         pos.y(),
+    #     )
+    #     self.addItem(self._noodle)
+    #
+    # def end_noodle(self):
+    #     if self._noodle is None:
+    #         return
+    #     self.removeItem(self._noodle)
+    #     self._noodle = None
+    #
+    # def dragLeaveEvent(self, event):
+    #     super(GraphicsNodeScene, self).dragLeaveEvent(event)
+    #     if self._noodle is not None:
+    #         self.end_noodle()
+    #
+    # def dragMoveEvent(self, event):
+    #     if self._noodle is None:
+    #         return
+    #     line = self._noodle.line()
+    #     self._noodle.setLine(
+    #         line.x1(),
+    #         line.y1(),
+    #         event.scenePos().x(),
+    #         event.scenePos().y(),
+    #     )
+    #     super(GraphicsNodeScene, self).dragMoveEvent(event)
 
 
 if __name__ == '__main__':

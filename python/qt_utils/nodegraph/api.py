@@ -68,22 +68,29 @@ class Node(object):
     @classmethod
     def deserialize(cls, data):
         # type: (dict) -> Node
-        return cls(data["type"], data["name"], data["identifier"])
+        return cls(
+            data["type"],
+            data["name"],
+            data["identifier"],
+            properties=data["properties"],
+        )
 
-    def __init__(self, node_type, name, identifier):
-        # type: (str, str, str) -> None
+    def __init__(self, node_type, name, identifier, properties=None):
+        # type: (str, str, str, dict) -> None
         self._name = name
         self._type = node_type
         self._inputs = []
         self._outputs = []
         self._identifier = identifier
+        self._properties = properties or {}
 
     def __repr__(self):
-        return "{}({!r}, {!r}, {!r})".format(
+        return "{}({!r}, {!r}, {!r}, properties={!r})".format(
             self.__class__.__name__,
             self._type,
             self._name,
             self._identifier,
+            self._properties,
         )
 
     def __eq__(self, other):
@@ -94,6 +101,14 @@ class Node(object):
 
     def __hash__(self):
         return hash(self._identifier)
+
+    def __getitem__(self, item):
+        return self._properties[item]
+
+    def __setitem__(self, key, value):
+        if key not in self._properties:
+            raise KeyError("Invalid property {!r} for node {}".format(key, self._name))
+        self._properties[key] = value
 
     @property
     def identifier(self):
@@ -179,6 +194,7 @@ class Node(object):
             "name": self._name,
             "type": self._type,
             "identifier": self._identifier,
+            "properties": self._properties,
         }
 
     def type(self):
@@ -318,8 +334,13 @@ if __name__ == '__main__':
     class EntityNode(Node):
         Type = "Entity"
 
-        def __init__(self, node_type, name, identifier):
-            super(EntityNode, self).__init__(node_type, name, identifier)
+        def __init__(self, node_type, name, identifier, properties=None):
+            defaults = {"key": 5}
+            if properties is not None:
+                defaults.update(properties)
+            super(EntityNode, self).__init__(
+                node_type, name, identifier, properties=defaults,
+            )
             self.add_input_port("inputs")
             self.add_output_port("outputs")
 
@@ -327,6 +348,7 @@ if __name__ == '__main__':
 
     s = Scene()
     n1 = s.create_node(EntityNode.Type, "one")
+    n1["key"] = 10
     print(n1)
     n2 = s.create_node(EntityNode.Type, "one")
     print(n2)

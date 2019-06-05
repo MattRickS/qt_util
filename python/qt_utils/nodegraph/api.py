@@ -4,45 +4,14 @@ import re
 import types
 import uuid
 import weakref
+from collections import defaultdict
+
 
 _NODE_TYPE_REGISTRY = {}
 
 
 class NodeError(Exception):
     """ Errors raised with nodes """
-
-
-class Connection(object):
-    def __init__(self, source, target):
-        # type: (Port, Port) -> None
-        self._source = source
-        self._target = target
-
-    def __repr__(self):
-        return "{}({}, {})".format(self.__class__.__name__, self._source, self._target)
-
-    def __str__(self):
-        return "{}<->{}".format(self._source, self._target)
-
-    def __eq__(self, other):
-        return (
-            isinstance(other, Connection)
-            and ((self._source == other.source and self._target == other.target)
-                 or (self._source == other.target and self._target == other.source))
-        )
-
-    def __hash__(self):
-        return hash(self._source) | hash(self._target)
-
-    @property
-    def source(self):
-        # type: () -> Port
-        return self._source
-
-    @property
-    def target(self):
-        # type: () -> Port
-        return self._target
 
 
 class Port(object):
@@ -180,10 +149,12 @@ class Node(object):
 
     def list_connections(self):
         connections = []
-        for port in self._inputs + self._outputs:
+        for port in self._inputs:
             for i in range(port.get_connection_count()):
-                connection = Connection(port, port.get_connected_by_index(i))
-                connections.append(connection)
+                connections.append((port, port.get_connected_by_index(i)))
+        for port in self._outputs:
+            for i in range(port.get_connection_count()):
+                connections.append((port.get_connected_by_index(i), port))
         return connections
 
     def list_inputs(self):
@@ -217,23 +188,33 @@ class Node(object):
 
 class Scene(object):
     @classmethod
-    def load(cls, filepath):
-        with open(filepath) as f:
-            data = json.load(f)
-
+    def deserialize(cls, data):
+        # type: (dict) -> Scene
         nodes = {}
         for node_data in data["nodes"]:
             node_class = get_registered_node_type(node_data["type"])
             node = node_class.deserialize(node_data)
             nodes[node.identifier] = node
 
-        for connection in data["connections"]:
-            # TODO: Deserialize connection data by modifying nodes
-            pass
+        for source_identifier, connections in data["connections"].items():
+            source = nodes[source_identifier]
+            for input_name, target_identifier, output_name in connections:
+                target = nodes[target_identifier]
+                in_port = source.get_input_by_name(input_name)
+                out_port = target.get_output_by_name(output_name)
+                in_port.connect(out_port)
 
-        return cls(nodes.values())
+        return cls(list(nodes.values()))
+
+    @classmethod
+    def load(cls, filepath):
+        # type: (str) -> Scene
+        with open(filepath) as f:
+            data = json.load(f)
+        return cls.deserialize(data)
 
     def __init__(self, nodes=()):
+        # type: (list[Node]) -> None
         self._identifiers = {n.identifier: n for n in nodes}
         self._names = weakref.WeakValueDictionary({n.name: n for n in nodes})
 
@@ -295,12 +276,25 @@ class Scene(object):
         if not os.path.exists(directory):
             os.makedirs(directory)
 
-        data = {
-            "nodes": [n.serialize() for n in self._identifiers.values()],
-            "connections": []  # TODO: serialize connection data
-        }
+        data = self.serialize()
         with open(filepath, "w") as f:
             json.dump(data, f)
+
+    def serialize(self):
+        # type: () -> dict
+        connections = defaultdict(set)
+        for node in self._identifiers.values():
+            for source, target in node.list_connections():
+                connections[source.node.identifier].add(
+                    (source.name, target.node.identifier, target.name)
+                )
+
+        return {
+            "nodes": [n.serialize() for n in self._identifiers.values()],
+            "connections": {
+                identifier: list(c) for identifier, c in connections.items()
+            },
+        }
 
 
 def get_registered_node_type(node_type):
@@ -327,20 +321,22 @@ if __name__ == '__main__':
         def __init__(self, node_type, name, identifier):
             super(EntityNode, self).__init__(node_type, name, identifier)
             self.add_input_port("inputs")
-            self.add_output_port("used")
+            self.add_output_port("outputs")
 
     register_node_type(EntityNode.Type, EntityNode)
 
     s = Scene()
-    n = s.create_node(EntityNode.Type, "one")
-    print(n)
-    n = s.create_node("Node", "one")
-    print(n)
+    n1 = s.create_node(EntityNode.Type, "one")
+    print(n1)
+    n2 = s.create_node(EntityNode.Type, "one")
+    print(n2)
     print(s.list_nodes())
     print(s.list_nodes(node_type="Node"))
     print(s.list_nodes(node_type=EntityNode.Type))
 
-    data = n.serialize()
-    n2 = Node.deserialize(data)
-    print(n)
-    print(n2)
+    n1.get_output_by_index(0).connect(n2.get_input_by_index(0))
+
+    path = r"C:\Users\Matthew\Documents\temp\qt_utils\scene.json"
+    s.save(path)
+    s2 = Scene.load(path)
+    print(s2.list_nodes())

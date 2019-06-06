@@ -163,6 +163,7 @@ class Node(object):
         raise KeyError("Node {!r} has no port named {!r}".format(self._name, name))
 
     def list_connections(self):
+        # type: () -> list[tuple[Port, Port]]
         connections = []
         for port in self._inputs:
             for i in range(port.get_connection_count()):

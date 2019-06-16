@@ -1,4 +1,3 @@
-import collections
 import re
 import types
 
@@ -250,23 +249,32 @@ class GroupNode(Node):
     def __init__(self, name, properties=None):
         # type: (str, GroupProperty) -> None
         super(GroupNode, self).__init__(name, properties=properties)
-        self._children = collections.OrderedDict()
+        self._children = {}
 
     def add_node(self, node):
         # type: (Node) -> None
-        # Port's can only be connected under the same parent
-        if node.parent() != self.parent():
-            node.isolate()
+        # If the parents are the same then nothing is changing and can be
+        # ignored, unless both parents are None in which case it's a new node
+        # being added to a root graph
+        if node.parent() == self.parent() and node.parent() is not None:
+            return
+        if node == self:
+            raise ValueError("Cannot add a node as it's own child")
+        if node.name in self._children:
+            raise ValueError("Node name already exists as child: {}".format(node.name))
+        # Port's can only be connected under the same parent so must be
+        # disconnected if switching
+        node.isolate()
         self._children[node.name] = node
         node._parent = self
 
-    def node(self, name):
+    def child(self, name):
         # type: (str) -> Node|GroupNode
         return self._children[name]
 
     def iter_children(self):
         # type: () -> types.Iterator[Node|GroupNode]
-        for c in self._children:
+        for c in self._children.values():
             yield c
 
     def num_children(self):
@@ -284,13 +292,11 @@ class Graph(GroupNode):
     def __init__(self, name="Graph"):
         # type: (str) -> None
         super(Graph, self).__init__(name)
-        self._nodes = collections.OrderedDict()
+        self._nodes = {}
 
     def create_node(self, node_type, name, parent=None):
-        # type: (str, str, str) -> Node
-        # Access data to ensure arguments are valid before doing anything
+        # type: (str, str, Node) -> Node
         node_class = get_registered_node_type(node_type)
-        parent_node = self if parent is None else self._nodes[parent]
 
         # Scan for existing names and increment the number
         num = -1
@@ -304,6 +310,7 @@ class Graph(GroupNode):
             name = "{}{}".format(name, num + 1)
 
         node = node_class(name)
+        parent_node = parent or self
         parent_node.add_node(node)
         self._nodes[name] = node
         return node
@@ -313,6 +320,10 @@ class Graph(GroupNode):
             raise ValueError("Node {} is not part of {}".format(node, self))
         node.parent().remove_node(node)
         self._nodes.pop(node.name)
+
+    def get_node(self, name):
+        # type: (str) -> Node
+        return self._nodes[name]
 
 
 def get_registered_node_type(node_type):
@@ -349,8 +360,9 @@ if __name__ == '__main__':
     g = Graph()
     node = g.create_node("MyNode", "name")
     group = g.create_node("Group", "name")
-    child1 = g.create_node("Node", "name", parent=group.name)
-    child2 = g.create_node("Node", "name", parent=group.name)
+    child1 = g.create_node("Node", "name", parent=group)
+    child2 = g.create_node("Node", "name", parent=group)
+    print(list(g.iter_children()))
     i = child1.add_output("out1")
     o = child2.add_input("in1")
     i.connect(o)
@@ -362,10 +374,10 @@ if __name__ == '__main__':
     print(group)
     print(child1)
     print(child2)
-    print(g.node("name1").node("name2").output("out1"))
-    print(g.node("name1").node("name3").input("in1"))
-    print(list(g.node("name1").node("name3").input("in1").iter_connected()))
-    print(list(g.node("name1").node("name2").output("out1").iter_connected()))
-    g.node("name1").node("name3").input("in1").isolate()
-    print(list(g.node("name1").node("name3").input("in1").iter_connected()))
-    print(list(g.node("name1").node("name2").output("out1").iter_connected()))
+    print(g.child("name1").child("name2").output("out1"))
+    print(g.child("name1").child("name3").input("in1"))
+    print(list(g.child("name1").child("name3").input("in1").iter_connected()))
+    print(list(g.child("name1").child("name2").output("out1").iter_connected()))
+    g.child("name1").child("name3").input("in1").isolate()
+    print(list(g.child("name1").child("name3").input("in1").iter_connected()))
+    print(list(g.child("name1").child("name2").output("out1").iter_connected()))

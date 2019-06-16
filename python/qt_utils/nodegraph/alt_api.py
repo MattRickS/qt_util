@@ -116,15 +116,27 @@ class Port(object):
         self._connected.append(port)
         port._connected.append(self)
 
+    def connected(self, index):
+        # type: (int) -> Port
+        return self._connected[index]
+
     def disconnect(self, port):
         # type: (Port) -> None
         self._connected.remove(port)
         port._connected.remove(self)
 
+    def isolate(self):
+        for port in reversed(self._connected):
+            self.disconnect(port)
+
     def iter_connected(self):
         # type: () -> types.Iterator[Port]
         for port in self._connected:
             yield port
+
+    def num_connected(self):
+        # type: () -> int
+        return len(self._connected)
 
 
 class Node(object):
@@ -175,6 +187,10 @@ class Node(object):
         # type: (int|str) -> Port
         return self._item(self._inputs, name_or_index)
 
+    def isolate(self):
+        for port in self._inputs + self._outputs:
+            port.isolate()
+
     def iter_inputs(self):
         # type: () -> types.Iterator[Port]
         for i in self._inputs:
@@ -203,12 +219,20 @@ class Node(object):
 
     def remove_input(self, port):
         # type: (Port) -> None
-        # TODO: Disconnect ports
+        if port not in self._inputs:
+            raise ValueError(
+                "Port {!r} not in inputs for node: {}".format(port.name, self)
+            )
+        port.isolate()
         self._inputs.remove(port)
 
     def remove_output(self, port):
         # type: (Port) -> None
-        # TODO: Disconnect ports
+        if port not in self._outputs:
+            raise ValueError(
+                "Port {!r} not in outputs for node: {}".format(port.name, self)
+            )
+        port.isolate()
         self._outputs.remove(port)
 
     def _item(self, lst, name_or_index):
@@ -230,7 +254,9 @@ class GroupNode(Node):
 
     def add_node(self, node):
         # type: (Node) -> None
-        # TODO: Disconnect existing ports if parent changed
+        # Port's can only be connected under the same parent
+        if node.parent() != self.parent():
+            node.isolate()
         self._children[node.name] = node
         node._parent = self
 
@@ -249,8 +275,8 @@ class GroupNode(Node):
 
     def remove_node(self, node):
         # type: (Node) -> None
-        # TODO: Disconnect ports...?
-        node = self._children.pop(node.name)
+        self._children.pop(node.name)
+        node.isolate()
         node._parent = None
 
 
@@ -339,3 +365,7 @@ if __name__ == '__main__':
     print(g.node("name1").node("name2").output("out1"))
     print(g.node("name1").node("name3").input("in1"))
     print(list(g.node("name1").node("name3").input("in1").iter_connected()))
+    print(list(g.node("name1").node("name2").output("out1").iter_connected()))
+    g.node("name1").node("name3").input("in1").isolate()
+    print(list(g.node("name1").node("name3").input("in1").iter_connected()))
+    print(list(g.node("name1").node("name2").output("out1").iter_connected()))

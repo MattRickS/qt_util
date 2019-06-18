@@ -454,7 +454,7 @@ class Graph(GroupNode):
     def _rebuild(self, node):
         # type: (GroupNode) -> None
         for child in node.iter_children():
-            self._nodes[child.name] = node
+            self._nodes[child.name] = child
             if isinstance(child, GroupNode):
                 self._rebuild(child)
 
@@ -526,5 +526,6 @@ if __name__ == '__main__':
     print(list(g.child("name1").child("name3").input("in1").iter_connected()))
     print(list(g.child("name1").child("name2").output("out1").iter_connected()))
     print("\n".join(ascii_tree(g)))
+    print(g.get_node("name3"))
     print(g.serialise())
     # g.save(r"C:\Users\Matthew\Documents\temp\qt_utils\scene2.json")

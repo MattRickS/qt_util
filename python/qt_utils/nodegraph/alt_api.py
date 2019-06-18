@@ -334,12 +334,18 @@ class GroupNode(Node):
     @classmethod
     def deserialise(cls, data):
         # type: (dict) -> GroupNode
-        node = super(GroupNode, cls).deserialise(data)  # type: GroupNode
+        group_node = super(GroupNode, cls).deserialise(data)  # type: GroupNode
         for child_data in data["children"]:
             node_class = get_registered_node_type(child_data["type"])
             child = node_class.deserialise(child_data)
-            node.add_node(child)
-        return node
+            group_node.add_node(child)
+
+        for source_node, source_port, target_node, target_port in data["connections"]:
+            i = group_node.child(source_node).input(source_port)
+            o = group_node.child(target_node).output(target_port)
+            i.connect(o)
+
+        return group_node
 
     def __init__(self, name):
         # type: (str) -> None
@@ -386,6 +392,12 @@ class GroupNode(Node):
         # type: () -> dict
         data = super(GroupNode, self).serialise()
         data["children"] = [n.serialise() for n in self._children.values()]
+        data["connections"] = [
+            [node.name, port.name, connected.node.name, connected.name]
+            for node in self._children.values()
+            for port in node.iter_inputs()
+            for connected in port.iter_connected()
+        ]
         return data
 
 
@@ -500,13 +512,17 @@ if __name__ == '__main__':
                 lines.extend(ascii_tree(child, level=level+1))
         return lines
 
+    def print_tree(node):
+        print("\n".join(ascii_tree(node)))
+
     g = Graph.load(r"C:\Users\Matthew\Documents\temp\qt_utils\scene2.json")
+    print_tree(g)
     # g = Graph("Graph")
     # node = g.create_node("MyNode", "name")
     # group = g.create_node("GroupNode", "name")
     # child1 = g.create_node("Node", "name", parent=group)
     # child2 = g.create_node("Node", "name", parent=group)
-    print(list(g.iter_children()))
+    # print(list(g.iter_children()))
     # i = child1.add_output("out1")
     # o = child2.add_input("in1")
     # i.connect(o)
@@ -518,14 +534,13 @@ if __name__ == '__main__':
     # print(group)
     # print(child1)
     # print(child2)
-    print(g.child("name1").child("name2").output("out1"))
-    print(g.child("name1").child("name3").input("in1"))
-    print(list(g.child("name1").child("name3").input("in1").iter_connected()))
-    print(list(g.child("name1").child("name2").output("out1").iter_connected()))
-    g.child("name1").child("name3").input("in1").isolate()
-    print(list(g.child("name1").child("name3").input("in1").iter_connected()))
-    print(list(g.child("name1").child("name2").output("out1").iter_connected()))
-    print("\n".join(ascii_tree(g)))
-    print(g.get_node("name3"))
-    print(g.serialise())
+    # print(g.child("name1").child("name2").output("out1"))
+    # print(g.child("name1").child("name3").input("in1"))
+    # print(list(g.child("name1").child("name3").input("in1").iter_connected()))
+    # print(list(g.child("name1").child("name2").output("out1").iter_connected()))
+    # # g.child("name1").child("name3").input("in1").isolate()
+    # # print(list(g.child("name1").child("name3").input("in1").iter_connected()))
+    # # print(list(g.child("name1").child("name2").output("out1").iter_connected()))
+    # print("\n".join(ascii_tree(g)))
+    # print(g.get_node("name3"))
     # g.save(r"C:\Users\Matthew\Documents\temp\qt_utils\scene2.json")

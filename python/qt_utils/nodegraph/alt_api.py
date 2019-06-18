@@ -1,11 +1,30 @@
+import json
 import re
 import types
 
 
 _NODE_TYPE_REGISTRY = {}
+_TYPES = {
+    "int": int,
+    "str": str,
+    "bool": bool,
+    "float": float,
+    "list": list,
+    "dict": dict,
+}
 
 
 class Property(object):
+    @classmethod
+    def deserialise(cls, data):
+        # type: (dict) -> Property
+        return cls(
+            data["name"],
+            _TYPES[data["type"]],
+            data["default"],
+            choices=data["choices"],
+        )
+
     def __init__(self, name, type_, default, choices=None):
         # type: (str, type, object, list) -> None
         self._name = name
@@ -53,8 +72,30 @@ class Property(object):
         # type: (object) -> None
         self._value = value
 
+    def serialise(self):
+        # type: () -> dict
+        return {
+            "name": self._name,
+            "type": self._type.__name__,
+            "default": self._default,
+            "choices": self._choices,
+            "value": self._value,
+        }
+
 
 class GroupProperty(object):
+    @classmethod
+    def deserialise(cls, data):
+        # type: (dict) -> GroupProperty
+        prop = cls(data["name"])
+        for prop_data in data["properties"]:
+            if "properties" in prop_data:
+                child = GroupProperty.deserialise(prop_data)
+            else:
+                child = Property.deserialise(prop_data)
+            prop.add_property(child)
+        return prop
+
     def __init__(self, name):
         # type: (str) -> None
         self._name = name
@@ -69,6 +110,9 @@ class GroupProperty(object):
     def __setitem__(self, key, value):
         self._properties[key].value = value
 
+    def __bool__(self):
+        return bool(self._properties)
+
     @property
     def name(self):
         # type: () -> str
@@ -79,6 +123,13 @@ class GroupProperty(object):
         if prop.name in self._properties:
             raise ValueError("Property already exists: {}".format(prop.name))
         self._properties[prop.name] = prop
+
+    def serialise(self):
+        # type: () -> dict
+        return {
+            "name": self._name,
+            "properties": [p.serialise() for p in self._properties.values()],
+        }
 
 
 class Port(object):
@@ -139,10 +190,27 @@ class Port(object):
 
 
 class Node(object):
-    def __init__(self, name, properties=None):
-        # type: (str, GroupProperty) -> None
+    @classmethod
+    def deserialise(cls, data):
+        # type: (dict) -> Node
+        node = cls(data["name"])
+
+        properties = data["properties"]
+        if properties:
+            node._properties = GroupProperty.deserialise(properties)
+
+        for input_name in data["inputs"]:
+            node.add_input(input_name)
+
+        for output_name in data["outputs"]:
+            node.add_output(output_name)
+
+        return node
+
+    def __init__(self, name):
+        # type: (str) -> None
         self._name = name
-        self._properties = properties
+        self._properties = GroupProperty("properties")
 
         self._inputs = []
         self._outputs = []
@@ -169,6 +237,11 @@ class Node(object):
     def name(self):
         # type: () -> str
         return self._name
+
+    @property
+    def properties(self):
+        # type: () -> GroupProperty
+        return self._properties
 
     def add_input(self, name):
         # type: (str) -> Port
@@ -234,6 +307,18 @@ class Node(object):
         port.isolate()
         self._outputs.remove(port)
 
+    def serialise(self):
+        # type: () -> dict
+        return {
+            "name": self._name,
+            "type": self.__class__.__name__,
+            "properties": (
+                self._properties.serialise() if self._properties else None
+            ),
+            "inputs": [p.name for p in self._inputs],
+            "outputs": [p.name for p in self._outputs],
+        }
+
     def _item(self, lst, name_or_index):
         # type: (list[Port], str|int) -> Port
         if isinstance(name_or_index, int):
@@ -246,9 +331,19 @@ class Node(object):
 
 
 class GroupNode(Node):
-    def __init__(self, name, properties=None):
-        # type: (str, GroupProperty) -> None
-        super(GroupNode, self).__init__(name, properties=properties)
+    @classmethod
+    def deserialise(cls, data):
+        # type: (dict) -> GroupNode
+        node = super(GroupNode, cls).deserialise(data)  # type: GroupNode
+        for child_data in data["children"]:
+            node_class = get_registered_node_type(child_data["type"])
+            child = node_class.deserialise(child_data)
+            node.add_node(child)
+        return node
+
+    def __init__(self, name):
+        # type: (str) -> None
+        super(GroupNode, self).__init__(name)
         self._children = {}
 
     def add_node(self, node):
@@ -287,8 +382,29 @@ class GroupNode(Node):
         node.isolate()
         node._parent = None
 
+    def serialise(self):
+        # type: () -> dict
+        data = super(GroupNode, self).serialise()
+        data["children"] = [n.serialise() for n in self._children.values()]
+        return data
+
 
 class Graph(GroupNode):
+    @classmethod
+    def deserialise(cls, data):
+        # type: (dict) -> Graph
+        graph = super(Graph, cls).deserialise(data)  # type: Graph
+        graph.rebuild_nodes()
+        return graph
+
+    @classmethod
+    def load(cls, filepath):
+        # type: (str) -> Graph
+        with open(filepath, "r") as stream:
+            data = json.load(stream)
+
+        return cls.deserialise(data)
+
     def __init__(self, name="Graph"):
         # type: (str) -> None
         super(Graph, self).__init__(name)
@@ -325,12 +441,32 @@ class Graph(GroupNode):
         # type: (str) -> Node
         return self._nodes[name]
 
+    def rebuild_nodes(self):
+        self._nodes.clear()
+        self._rebuild(self)
+
+    def save(self, filepath):
+        # type: (str) -> None
+        data = self.serialise()
+        with open(filepath, "w") as stream:
+            json.dump(data, stream)
+
+    def _rebuild(self, node):
+        # type: (GroupNode) -> None
+        for child in node.iter_children():
+            self._nodes[child.name] = node
+            if isinstance(child, GroupNode):
+                self._rebuild(child)
+
 
 def get_registered_node_type(node_type):
     # type: (str) -> types.Type[Node]
     return _NODE_TYPE_REGISTRY[node_type]
 
 
+# One downside of this system is that it's unknown where nodes are being
+# registered from (unless logged, but then it's still not easy to check). An
+# environment variable with paths to load node types from is far clearer.
 def register_node_type(node_type, node_class):
     # type: (str, types.Type[Node]) -> None
     if node_type in _NODE_TYPE_REGISTRY:
@@ -341,39 +477,47 @@ def register_node_type(node_type, node_class):
 
 
 register_node_type("Node", Node)
-register_node_type("Group", GroupNode)
+register_node_type("GroupNode", GroupNode)
+register_node_type("Graph", Graph)
 
 
 if __name__ == '__main__':
     class MyNode(Node):
         def __init__(self, name):
-            group_prop = GroupProperty("root")
-            group_prop.add_property(Property("two", str, ""))
-            group_prop.add_property(Property("three", int, 0))
+            super(MyNode, self).__init__(name)
+            self.properties.add_property(Property("two", str, ""))
+            self.properties.add_property(Property("three", int, 0))
             prop2 = GroupProperty("four")
             prop2.add_property(Property("five", bool, True))
-            group_prop.add_property(prop2)
-            super(MyNode, self).__init__(name, properties=group_prop)
+            self.properties.add_property(prop2)
 
     register_node_type("MyNode", MyNode)
 
-    g = Graph()
-    node = g.create_node("MyNode", "name")
-    group = g.create_node("Group", "name")
-    child1 = g.create_node("Node", "name", parent=group)
-    child2 = g.create_node("Node", "name", parent=group)
+    def ascii_tree(node, level=0):
+        lines = [". " * level + repr(node)]
+        if isinstance(node, GroupNode):
+            for child in node.iter_children():
+                lines.extend(ascii_tree(child, level=level+1))
+        return lines
+
+    g = Graph.load(r"C:\Users\Matthew\Documents\temp\qt_utils\scene2.json")
+    # g = Graph("Graph")
+    # node = g.create_node("MyNode", "name")
+    # group = g.create_node("GroupNode", "name")
+    # child1 = g.create_node("Node", "name", parent=group)
+    # child2 = g.create_node("Node", "name", parent=group)
     print(list(g.iter_children()))
-    i = child1.add_output("out1")
-    o = child2.add_input("in1")
-    i.connect(o)
-    print("Node:", node["two"])
-    print("Node:", node["two"])
-    print("Node:", node["three"])
-    print("Node:", node["four"]["five"])
-    print(node)
-    print(group)
-    print(child1)
-    print(child2)
+    # i = child1.add_output("out1")
+    # o = child2.add_input("in1")
+    # i.connect(o)
+    # print("Node:", node["two"])
+    # print("Node:", node["two"])
+    # print("Node:", node["three"])
+    # print("Node:", node["four"]["five"])
+    # print(node)
+    # print(group)
+    # print(child1)
+    # print(child2)
     print(g.child("name1").child("name2").output("out1"))
     print(g.child("name1").child("name3").input("in1"))
     print(list(g.child("name1").child("name3").input("in1").iter_connected()))
@@ -381,3 +525,6 @@ if __name__ == '__main__':
     g.child("name1").child("name3").input("in1").isolate()
     print(list(g.child("name1").child("name3").input("in1").iter_connected()))
     print(list(g.child("name1").child("name2").output("out1").iter_connected()))
+    print("\n".join(ascii_tree(g)))
+    print(g.serialise())
+    # g.save(r"C:\Users\Matthew\Documents\temp\qt_utils\scene2.json")

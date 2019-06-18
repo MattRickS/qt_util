@@ -133,17 +133,28 @@ class GroupProperty(object):
 
 
 class Port(object):
-    def __init__(self, node, name):
-        # type: (Node, str) -> None
+    Input = 0
+    Output = 1
+
+    def __init__(self, node, name, direction):
+        # type: (Node, str, int) -> None
         self._node = node
         self._name = name
+        self._direction = direction
         self._connected = []
 
     def __repr__(self):
-        return "{}({!r}, {!r})".format(self.__class__.__name__, self._node, self._name)
+        return "{}({!r}, {!r}, {})".format(
+            self.__class__.__name__, self._node, self._name, self._direction
+        )
 
     def __str__(self):
         return "{}.{}".format(self._node, self._name)
+
+    @property
+    def direction(self):
+        # type: () -> int
+        return self._direction
 
     @property
     def name(self):
@@ -159,12 +170,15 @@ class Port(object):
         # type: (Port) -> None
         if port in self._connected:
             return
-        if port.node == self.node:
+        elif port.direction == self._direction:
+            raise ValueError("Cannot connect ports of the same direction")
+        elif port.node == self.node:
             raise ValueError("Cannot connect a node's port to it's own node")
-        if port.node.parent() != self.node.parent():
+        elif port.node.parent() != self.node.parent():
             raise ValueError("Cannot connect ports under different parents")
-        self._connected.append(port)
-        port._connected.append(self)
+        else:
+            self._connected.append(port)
+            port._connected.append(self)
 
     def connected(self, index):
         # type: (int) -> Port
@@ -245,13 +259,13 @@ class Node(object):
 
     def add_input(self, name):
         # type: (str) -> Port
-        port = Port(self, name)
+        port = Port(self, name, Port.Input)
         self._inputs.append(port)
         return port
 
     def add_output(self, name):
         # type: (str) -> Port
-        port = Port(self, name)
+        port = Port(self, name, Port.Output)
         self._outputs.append(port)
         return port
 
@@ -311,7 +325,7 @@ class Node(object):
         # type: () -> dict
         return {
             "name": self._name,
-            "type": self.__class__.__name__,
+            "type": self.type(),
             "properties": (
                 self._properties.serialise() if self._properties else None
             ),
@@ -319,7 +333,12 @@ class Node(object):
             "outputs": [p.name for p in self._outputs],
         }
 
-    def _item(self, lst, name_or_index):
+    def type(self):
+        # type: () -> str
+        return self.__class__.__name__
+
+    @staticmethod
+    def _item(lst, name_or_index):
         # type: (list[Port], str|int) -> Port
         if isinstance(name_or_index, int):
             return lst[name_or_index]
@@ -515,25 +534,26 @@ if __name__ == '__main__':
     def print_tree(node):
         print("\n".join(ascii_tree(node)))
 
-    g = Graph.load(r"C:\Users\Matthew\Documents\temp\qt_utils\scene.json")
-    print_tree(g)
-    # g = Graph("Graph")
-    # node = g.create_node("MyNode", "name")
-    # group = g.create_node("Group", "name")
-    # child1 = g.create_node("Node", "name", parent=group)
-    # child2 = g.create_node("Node", "name", parent=group)
-    # print(list(g.iter_children()))
-    # i = child1.add_output("out1")
-    # o = child2.add_input("in1")
-    # i.connect(o)
-    # print("Node:", node["two"])
-    # print("Node:", node["two"])
-    # print("Node:", node["three"])
-    # print("Node:", node["four"]["five"])
-    # print(node)
-    # print(group)
-    # print(child1)
-    # print(child2)
+    # g = Graph.load(r"C:\Users\Matthew\Documents\temp\qt_utils\scene.json")
+    # print_tree(g)
+    g = Graph("Graph")
+    node = g.create_node("MyNode", "name")
+    group = g.create_node("Group", "name")
+    group.add_input("one")
+    child1 = g.create_node("Node", "name", parent=group)
+    child2 = g.create_node("Node", "name", parent=group)
+    print(list(g.iter_children()))
+    i = child1.add_output("out1")
+    o = child2.add_input("in1")
+    i.connect(o)
+    print("Node:", node["two"])
+    print("Node:", node["two"])
+    print("Node:", node["three"])
+    print("Node:", node["four"]["five"])
+    print(node)
+    print(group)
+    print(child1)
+    print(child2)
     print(g.child("name1").child("name2").output("out1"))
     print(g.child("name1").child("name3").input("in1"))
     print(list(g.child("name1").child("name3").input("in1").iter_connected()))
@@ -542,4 +562,4 @@ if __name__ == '__main__':
     # print(list(g.child("name1").child("name3").input("in1").iter_connected()))
     # print(list(g.child("name1").child("name2").output("out1").iter_connected()))
     print(g.get_node("name3"))
-    # g.save(r"C:\Users\Matthew\Documents\temp\qt_utils\scene.json")
+    g.save(r"C:\Users\Matthew\Documents\temp\qt_utils\scene.json")

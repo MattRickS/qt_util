@@ -330,11 +330,11 @@ class Node(object):
         raise ValueError("Unknown port: {}".format(name_or_index))
 
 
-class GroupNode(Node):
+class Group(Node):
     @classmethod
     def deserialise(cls, data):
-        # type: (dict) -> GroupNode
-        group_node = super(GroupNode, cls).deserialise(data)  # type: GroupNode
+        # type: (dict) -> Group
+        group_node = super(Group, cls).deserialise(data)  # type: Group
         for child_data in data["children"]:
             node_class = get_registered_node_type(child_data["type"])
             child = node_class.deserialise(child_data)
@@ -349,7 +349,7 @@ class GroupNode(Node):
 
     def __init__(self, name):
         # type: (str) -> None
-        super(GroupNode, self).__init__(name)
+        super(Group, self).__init__(name)
         self._children = {}
 
     def add_node(self, node):
@@ -370,11 +370,11 @@ class GroupNode(Node):
         node._parent = self
 
     def child(self, name):
-        # type: (str) -> Node|GroupNode
+        # type: (str) -> Node|Group
         return self._children[name]
 
     def iter_children(self):
-        # type: () -> types.Iterator[Node|GroupNode]
+        # type: () -> types.Iterator[Node|Group]
         for c in self._children.values():
             yield c
 
@@ -390,7 +390,7 @@ class GroupNode(Node):
 
     def serialise(self):
         # type: () -> dict
-        data = super(GroupNode, self).serialise()
+        data = super(Group, self).serialise()
         data["children"] = [n.serialise() for n in self._children.values()]
         data["connections"] = [
             [node.name, port.name, connected.node.name, connected.name]
@@ -401,7 +401,7 @@ class GroupNode(Node):
         return data
 
 
-class Graph(GroupNode):
+class Graph(Group):
     @classmethod
     def deserialise(cls, data):
         # type: (dict) -> Graph
@@ -464,10 +464,10 @@ class Graph(GroupNode):
             json.dump(data, stream)
 
     def _rebuild(self, node):
-        # type: (GroupNode) -> None
+        # type: (Group) -> None
         for child in node.iter_children():
             self._nodes[child.name] = child
-            if isinstance(child, GroupNode):
+            if isinstance(child, Group):
                 self._rebuild(child)
 
 
@@ -489,7 +489,7 @@ def register_node_type(node_type, node_class):
 
 
 register_node_type("Node", Node)
-register_node_type("GroupNode", GroupNode)
+register_node_type("Group", Group)
 register_node_type("Graph", Graph)
 
 
@@ -507,7 +507,7 @@ if __name__ == '__main__':
 
     def ascii_tree(node, level=0):
         lines = [". " * level + repr(node)]
-        if isinstance(node, GroupNode):
+        if isinstance(node, Group):
             for child in node.iter_children():
                 lines.extend(ascii_tree(child, level=level+1))
         return lines
@@ -515,11 +515,11 @@ if __name__ == '__main__':
     def print_tree(node):
         print("\n".join(ascii_tree(node)))
 
-    g = Graph.load(r"C:\Users\Matthew\Documents\temp\qt_utils\scene2.json")
+    g = Graph.load(r"C:\Users\Matthew\Documents\temp\qt_utils\scene.json")
     print_tree(g)
     # g = Graph("Graph")
     # node = g.create_node("MyNode", "name")
-    # group = g.create_node("GroupNode", "name")
+    # group = g.create_node("Group", "name")
     # child1 = g.create_node("Node", "name", parent=group)
     # child2 = g.create_node("Node", "name", parent=group)
     # print(list(g.iter_children()))
@@ -534,13 +534,12 @@ if __name__ == '__main__':
     # print(group)
     # print(child1)
     # print(child2)
-    # print(g.child("name1").child("name2").output("out1"))
-    # print(g.child("name1").child("name3").input("in1"))
+    print(g.child("name1").child("name2").output("out1"))
+    print(g.child("name1").child("name3").input("in1"))
+    print(list(g.child("name1").child("name3").input("in1").iter_connected()))
+    print(list(g.child("name1").child("name2").output("out1").iter_connected()))
+    # g.child("name1").child("name3").input("in1").isolate()
     # print(list(g.child("name1").child("name3").input("in1").iter_connected()))
     # print(list(g.child("name1").child("name2").output("out1").iter_connected()))
-    # # g.child("name1").child("name3").input("in1").isolate()
-    # # print(list(g.child("name1").child("name3").input("in1").iter_connected()))
-    # # print(list(g.child("name1").child("name2").output("out1").iter_connected()))
-    # print("\n".join(ascii_tree(g)))
-    # print(g.get_node("name3"))
-    # g.save(r"C:\Users\Matthew\Documents\temp\qt_utils\scene2.json")
+    print(g.get_node("name3"))
+    # g.save(r"C:\Users\Matthew\Documents\temp\qt_utils\scene.json")

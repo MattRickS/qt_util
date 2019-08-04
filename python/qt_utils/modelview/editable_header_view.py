@@ -91,9 +91,6 @@ class HeaderDelegate(QtWidgets.QStyledItemDelegate):
 class EditableHeaderView(QtWidgets.QHeaderView):
     MARGIN = 1
 
-    stringEdited = QtCore.Signal(int, str)
-    stringsReset = QtCore.Signal()
-
     def __init__(self, orientation):
         super(EditableHeaderView, self).__init__(orientation)
         self._editing_widget = None
@@ -454,21 +451,14 @@ if __name__ == "__main__":
                 return True
             return False
 
-    def debug(*args, **kwargs):
-        print("Signal received:", args, kwargs)
-
     model = ExampleModel()
     view = QtWidgets.QTableView()
     view.setModel(model)
 
     h_header = EditableHeaderView(QtCore.Qt.Horizontal)
-    h_header.stringEdited.connect(debug)
-    h_header.stringsReset.connect(debug)
     view.setHorizontalHeader(h_header)
 
     v_header = EditableHeaderView(QtCore.Qt.Vertical)
-    v_header.stringEdited.connect(debug)
-    v_header.stringsReset.connect(debug)
     view.setVerticalHeader(v_header)
 
     view.show()

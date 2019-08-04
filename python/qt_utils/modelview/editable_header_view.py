@@ -54,27 +54,32 @@ class EditableHeaderView(QtWidgets.QHeaderView):
         if self._editing_widget:
             self.finalise_widget()
 
-        rect = self.get_widget_geometry(logical_index)
+        # Both internal states must be set together to avoid corrupted state during focus changes
+        self._editing_index = logical_index
         self._editing_widget = self.create_widget(logical_index)
-        self._editing_widget.setFocus(focus_reason)
+        rect = self.get_widget_geometry(logical_index)
         self._editing_widget.setGeometry(rect)
         self._editing_widget.show()
-        self._editing_index = logical_index
+        self._editing_widget.setFocus(focus_reason)
 
-    def finalise_widget(self):
+    def finalise_widget(self, accept_changes=True):
         """ Submits and kills the current widget being edited """
         if self._editing_widget is None:
             return
 
         self._editing_widget.blockSignals(True)
         try:
-            text = self.get_widget_text(self._editing_widget)
-            self.set_string(self._editing_index, text)
+            if accept_changes:
+                text = self.get_widget_text(self._editing_widget)
+                self.set_string(self._editing_index, text)
         finally:
-            self._editing_widget.setParent(None)
-            self._editing_widget.deleteLater()
+            # Internal state must be reset BEFORE abandoning the widget to GC.
+            # Without this, there is a risk of focus state changes causing the
+            # internal state to get corrupted and no widgets are closed.
+            widget = self._editing_widget
             self._editing_widget = None
             self._editing_index = -1
+            widget.setParent(None)
 
     def get_string(self, logical_index):
         """
@@ -210,8 +215,23 @@ class EditableHeaderView(QtWidgets.QHeaderView):
         del self._strings[first : last + 1]
 
     # ======================================================================== #
-    #  Events
+    #  Subclassed
     # ======================================================================== #
+
+    def focusNextPrevChild(self, is_next):
+        if self._editing_index >= 0:
+            if is_next:
+                self.edit_widget(
+                    (self._editing_index + 1) % self.count(),
+                    focus_reason=QtCore.Qt.TabFocusReason,
+                )
+            else:
+                self.edit_widget(
+                    (self._editing_index - 1) % self.count(),
+                    focus_reason=QtCore.Qt.BacktabFocusReason,
+                )
+            return True
+        return super(EditableHeaderView, self).focusNextPrevChild(is_next)
 
     def mouseReleaseEvent(self, event):
         clickable = self.sectionsClickable()
@@ -282,7 +302,6 @@ class EditableHeaderView(QtWidgets.QHeaderView):
     def sizeHint(self):
         # type: () -> QtCore.QSize
         size = super(EditableHeaderView, self).size()
-        print(size)
         if self.orientation() == QtCore.Qt.Horizontal:
             return QtCore.QSize(size.width(), 46)
         else:

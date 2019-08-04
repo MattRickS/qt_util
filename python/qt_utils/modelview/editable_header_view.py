@@ -21,6 +21,10 @@ class HeaderIndex(object):
 
 
 class HeaderDelegate(QtWidgets.QStyledItemDelegate):
+    def __init__(self, parent=None):
+        super(HeaderDelegate, self).__init__(parent)
+        self._dummy_edit = QtWidgets.QLineEdit()
+
     def createEditor(self, parent, option, header_index):
         # type: (QtWidgets.QWidget, QtGui.QStyleOptionFrame, HeaderIndex) -> QtWidgets.QWidget
         editor = QtWidgets.QLineEdit(parent)
@@ -42,10 +46,11 @@ class HeaderDelegate(QtWidgets.QStyledItemDelegate):
         # type: (QtGui.QPainterPath, QtGui.QStyleOptionFrame, HeaderIndex) -> None
         painter.save()
 
+        style = QtWidgets.QApplication.instance().style()
         frame_option = QtWidgets.QStyleOptionFrame()
         frame_option.initFrom(self._dummy_edit)
         frame_option.rect = option.rect
-        frame_option.lineWidth = self.style().pixelMetric(
+        frame_option.lineWidth = style.pixelMetric(
             QtWidgets.QStyle.PM_DefaultFrameWidth, frame_option, self._dummy_edit
         )
         frame_option.midLineWidth = 0
@@ -56,9 +61,8 @@ class HeaderDelegate(QtWidgets.QStyledItemDelegate):
         frame_option.features = 0
         # option.palette.setBrush(QtGui.QPalette.Base, QtGui.QColor("white"))
 
-        style = self.style()
         style.drawPrimitive(
-            QtWidgets.QStyle.PE_PanelLineEdit, frame_option, painter, self
+            QtWidgets.QStyle.PE_PanelLineEdit, frame_option, painter, self.parent()
         )
         contents_rect = style.subElementRect(
             QtWidgets.QStyle.SE_LineEditContents, frame_option, self._dummy_edit
@@ -93,7 +97,6 @@ class EditableHeaderView(QtWidgets.QHeaderView):
         super(EditableHeaderView, self).__init__(orientation)
         self._editing_widget = None
         self._editing_index = -1
-        self._dummy_edit = QtWidgets.QLineEdit()
         self.setItemDelegate(HeaderDelegate(self))
 
         self.setSectionsClickable(True)
@@ -154,18 +157,6 @@ class EditableHeaderView(QtWidgets.QHeaderView):
             self._editing_widget = None
             self._editing_index = -1
             widget.setParent(None)
-
-    def get_string(self, logical_index):
-        """
-        Args:
-            logical_index (int): Section to get the string value for
-
-        Returns:
-            str: Text stored for the section
-        """
-        return self.model().headerData(
-            logical_index, self.orientation(), role=HeaderRole.EditRole
-        )
 
     def get_header_geometry(self, logical_index):
         """
@@ -246,23 +237,6 @@ class EditableHeaderView(QtWidgets.QHeaderView):
         )
         return delegate or self.itemDelegate()
 
-    def set_string(self, logical_index, string):
-        """
-        Args:
-            logical_index (int): Section to set the value for
-            string (str): Text to set in the header
-        """
-        current = self.get_string(self._editing_index)
-        if current == string:
-            return
-
-        edited = self.model().setHeaderData(
-            logical_index, self.orientation(), string, HeaderRole.EditRole
-        )
-        self.updateSection(logical_index)
-        if edited:
-            self.stringEdited.emit(logical_index, string)
-
     # ======================================================================== #
     #  Subclassed
     # ======================================================================== #
@@ -287,7 +261,6 @@ class EditableHeaderView(QtWidgets.QHeaderView):
 
     def headerDataChanged(self, orientation, first, last):
         # type: (QtCore.Qt.Orientation, int, int) -> None
-        print("Header data changed")
         for i in range(first, last + 1):
             self.updateSection(i)
 
@@ -311,36 +284,15 @@ class EditableHeaderView(QtWidgets.QHeaderView):
     def paintSection(self, painter, rect, logical_index):
         # type: (QtGui.QPainter, QtCore.QRect, int) -> None
         # Render the filter widget in the header widget rect
-        painter.save()
-
-        widget_rect = self.get_widget_geometry(logical_index)
 
         option = QtWidgets.QStyleOptionFrame()
-        option.initFrom(self._dummy_edit)
-        option.rect = widget_rect
-        option.lineWidth = self.style().pixelMetric(
-            QtWidgets.QStyle.PM_DefaultFrameWidth, option, self._dummy_edit
-        )
-        option.midLineWidth = 0
+        option.rect = self.get_widget_geometry(logical_index)
         option.state |= QtWidgets.QStyle.State_Sunken
-        option.text = self.get_string(logical_index)
-        option.features = 0
         # option.palette.setBrush(QtGui.QPalette.Base, QtGui.QColor("white"))
 
-        style = self.style()
-        style.drawPrimitive(QtWidgets.QStyle.PE_PanelLineEdit, option, painter, self)
-        contents_rect = style.subElementRect(
-            QtWidgets.QStyle.SE_LineEditContents, option, self._dummy_edit
-        )
-        style.drawItemText(
-            painter,
-            contents_rect,
-            QtCore.Qt.AlignCenter,
-            option.palette,
-            True,
-            option.text,
-        )
-
+        painter.save()
+        delegate = self.item_delegate_for_section(logical_index)
+        delegate.paint(painter, option, self.header_index(logical_index))
         painter.restore()
 
         # # Render the original header section in the remaining area
@@ -403,6 +355,8 @@ if __name__ == "__main__":
                 return self.columns[section]
             elif role == HeaderRole.BackgroundColorRole:
                 return QtGui.QColor("red")
+            elif role == HeaderRole.EditableRole:
+                return True
             elif role == HeaderRole.EditRole:
                 if orientation == QtCore.Qt.Horizontal:
                     return self._h_strings[section]

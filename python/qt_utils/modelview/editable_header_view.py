@@ -28,6 +28,7 @@ class HeaderDelegate(QtWidgets.QStyledItemDelegate):
     def createEditor(self, parent, option, header_index):
         # type: (QtWidgets.QWidget, QtGui.QStyleOptionFrame, HeaderIndex) -> QtWidgets.QWidget
         editor = QtWidgets.QLineEdit(parent)
+        editor.editingFinished.connect(lambda: self.commitData.emit(editor))
         return editor
 
     def setEditorData(self, editor, header_index):
@@ -131,7 +132,9 @@ class EditableHeaderView(QtWidgets.QHeaderView):
             self, QtWidgets.QStyleOptionFrame(), header_index
         )
         delegate.setEditorData(self._editing_widget, header_index)
-        # TODO: At the moment nothing knows when to close the delegate
+        # TODO: At the moment nothing knows when to close the delegate unless
+        # the delegate itself specifies it. Ideally there should be an event
+        # filter of some sort for deducing when an editor can be closed
 
         rect = self.get_widget_geometry(logical_index)
         self._editing_widget.setGeometry(rect)
@@ -237,9 +240,39 @@ class EditableHeaderView(QtWidgets.QHeaderView):
         )
         return delegate or self.itemDelegate()
 
+    def set_item_delegate_for_section(self, section, delegate):
+        # type: (int, HeaderDelegate) -> None
+        if self.orientation() == QtCore.Qt.Horizontal:
+            self.setItemDelegateForColumn(section, delegate)
+        else:
+            self.setItemDelegateForRow(section, delegate)
+
+    def on_close_editor(self):
+        self.finish_editing(accept_changes=False)
+
+    def on_commit_data(self):
+        self.finish_editing()
+
+    def _connect_delegate(self, delegate):
+        if delegate is None:
+            return
+        delegate.commitData.connect(self.on_commit_data)
+        delegate.closeEditor.connect(self.on_close_editor)
+
+    def _disconnect_delegate(self, delegate):
+        if delegate is None:
+            return
+        delegate.commitData.disconnect(self.on_commit_data)
+        delegate.closeEditor.disconnect(self.on_close_editor)
+
     # ======================================================================== #
     #  Subclassed
     # ======================================================================== #
+
+    def currentChanged(self, current, old):
+        super(EditableHeaderView, self).currentChanged(current, old)
+        # If a cell is selected, the widget is no longer in focus
+        self.finish_editing()
 
     def focusNextPrevChild(self, is_next):
         # TODO: Focus is still behaving oddly for the view - it appears actual
@@ -263,6 +296,22 @@ class EditableHeaderView(QtWidgets.QHeaderView):
         # type: (QtCore.Qt.Orientation, int, int) -> None
         for i in range(first, last + 1):
             self.updateSection(i)
+
+    def mousePressEvent(self, event):
+        clickable = self.sectionsClickable()
+        # Check if the release happens in the region of a widget and if so,
+        # display the widget
+        logical_index = self.logicalIndexAt(event.pos())
+        rect = self.get_widget_geometry(logical_index)
+        if rect.contains(event.pos()):
+            # Prevent interaction with the widget region from triggering a
+            # section click, otherwise it will be sorted (if sorting is
+            # enabled). Note: setSortIndicator is not virtual so overriding
+            # it explicitly is not possible
+            self.setSectionsClickable(False)
+        super(EditableHeaderView, self).mouseReleaseEvent(event)
+        if self.sectionsClickable() != clickable:
+            self.setSectionsClickable(clickable)
 
     def mouseReleaseEvent(self, event):
         clickable = self.sectionsClickable()
@@ -298,6 +347,26 @@ class EditableHeaderView(QtWidgets.QHeaderView):
         # # Render the original header section in the remaining area
         header_geo = self.get_header_geometry(logical_index)
         super(EditableHeaderView, self).paintSection(painter, header_geo, logical_index)
+
+    def setItemDelegate(self, delegate):
+        # type: (HeaderDelegate) -> None
+        old_delegate = self.itemDelegate()
+        self._disconnect_delegate(old_delegate)
+        super(EditableHeaderView, self).setItemDelegate(delegate)
+        new_delegate = self.itemDelegate()
+        self._connect_delegate(new_delegate)
+
+    def setItemDelegateForColumn(self, column, delegate):
+        # type: (int, HeaderDelegate) -> None
+        super(EditableHeaderView, self).setItemDelegateForColumn(column, delegate)
+        new_delegate = self.itemDelegateForColumn(column)
+        self._connect_delegate(new_delegate)
+
+    def setItemDelegateForRow(self, row, delegate):
+        # type: (int, HeaderDelegate) -> None
+        super(EditableHeaderView, self).setItemDelegateForRow(row, delegate)
+        new_delegate = self.itemDelegateForRow(row)
+        self._connect_delegate(new_delegate)
 
     def sizeHint(self):
         # type: () -> QtCore.QSize

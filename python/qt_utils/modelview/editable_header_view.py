@@ -5,6 +5,7 @@ class HeaderRole(object):
     EditRole = QtCore.Qt.EditRole
     BackgroundColorRole = QtCore.Qt.UserRole + 101
     EditableRole = QtCore.Qt.UserRole + 102
+    ChoicesRole = QtCore.Qt.UserRole + 103
 
 
 class HeaderIndex(object):
@@ -23,7 +24,7 @@ class HeaderIndex(object):
 class HeaderDelegate(QtWidgets.QStyledItemDelegate):
     def __init__(self, parent=None):
         super(HeaderDelegate, self).__init__(parent)
-        self._dummy_edit = QtWidgets.QLineEdit()
+        self._dummy = QtWidgets.QLineEdit()
 
     def createEditor(self, parent, option, header_index):
         # type: (QtWidgets.QWidget, QtGui.QStyleOptionFrame, HeaderIndex) -> QtWidgets.QWidget
@@ -47,12 +48,12 @@ class HeaderDelegate(QtWidgets.QStyledItemDelegate):
         # type: (QtGui.QPainterPath, QtGui.QStyleOptionFrame, HeaderIndex) -> None
         painter.save()
 
-        style = QtWidgets.QApplication.instance().style()
+        style = QtWidgets.QApplication.style()
         frame_option = QtWidgets.QStyleOptionFrame()
-        frame_option.initFrom(self._dummy_edit)
+        frame_option.initFrom(self._dummy)
         frame_option.rect = option.rect
         frame_option.lineWidth = style.pixelMetric(
-            QtWidgets.QStyle.PM_DefaultFrameWidth, frame_option, self._dummy_edit
+            QtWidgets.QStyle.PM_DefaultFrameWidth, frame_option, self._dummy
         )
         frame_option.midLineWidth = 0
         frame_option.state |= QtWidgets.QStyle.State_Sunken
@@ -66,7 +67,7 @@ class HeaderDelegate(QtWidgets.QStyledItemDelegate):
             QtWidgets.QStyle.PE_PanelLineEdit, frame_option, painter, self.parent()
         )
         contents_rect = style.subElementRect(
-            QtWidgets.QStyle.SE_LineEditContents, frame_option, self._dummy_edit
+            QtWidgets.QStyle.SE_LineEditContents, frame_option, self._dummy
         )
         style.drawItemText(
             painter,
@@ -85,7 +86,38 @@ class HeaderDelegate(QtWidgets.QStyledItemDelegate):
 
     def updateEditorGeometry(self, editor, option, header_index):
         # type: (QtWidgets.QWidget, QtGui.QStyleOptionFrame, HeaderIndex) -> None
-        pass
+        editor.setGeometry(option.rect)
+
+
+class ComboHeaderDelegate(HeaderDelegate):
+    def createEditor(self, parent, option, header_index):
+        choices = header_index.data(HeaderRole.ChoicesRole)
+        editor = QtWidgets.QComboBox(parent)
+        editor.addItems(choices)
+        editor.activated.connect(lambda: self.commitData.emit(editor))
+        return editor
+
+    def setEditorData(self, editor, header_index):
+        current = header_index.data()
+        editor.setCurrentText(current)
+
+    def setModelData(self, editor, model, header_index):
+        value = editor.currentText()
+        model.setHeaderData(
+            header_index.section, header_index.orientation, value, HeaderRole.EditRole
+        )
+
+    def paint(self, painter, option, header_index):
+        painter.save()
+
+        style = QtWidgets.QApplication.style()
+        opt = QtWidgets.QStyleOptionComboBox()
+        opt.rect = option.rect
+        opt.currentText = header_index.data()
+        style.drawComplexControl(QtWidgets.QStyle.CC_ComboBox, opt, painter)
+        style.drawControl(QtWidgets.QStyle.CE_ComboBoxLabel, opt, painter)
+
+        painter.restore()
 
 
 class EditableHeaderView(QtWidgets.QHeaderView):
@@ -416,7 +448,7 @@ if __name__ == "__main__":
             return QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsSelectable
 
         def headerData(self, section, orientation, role=QtCore.Qt.DisplayRole):
-            # type: (int, QtCore.Qt.Orientation, int) -> str
+            # type: (int, QtCore.Qt.Orientation, int) -> object
             if role == QtCore.Qt.DisplayRole:
                 return self.columns[section]
             elif role == HeaderRole.BackgroundColorRole:
@@ -428,6 +460,8 @@ if __name__ == "__main__":
                     return self._h_strings[section]
                 else:
                     return self._v_strings[section]
+            elif role == HeaderRole.ChoicesRole:
+                return ["abc", "def", "ghi"]
 
         def index(self, row, column, parent=QtCore.QModelIndex()):
             # type: (int, int, QtCore.QModelIndex) -> QtCore.QModelIndex

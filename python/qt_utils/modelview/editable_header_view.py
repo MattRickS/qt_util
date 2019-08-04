@@ -4,6 +4,83 @@ from PySide2 import QtCore, QtGui, QtWidgets
 class HeaderRole(object):
     EditRole = QtCore.Qt.EditRole
     BackgroundColorRole = QtCore.Qt.UserRole + 101
+    EditableRole = QtCore.Qt.UserRole + 102
+
+
+class HeaderIndex(object):
+    def __init__(self, model, orientation, section):
+        self.model = model
+        self.orientation = orientation
+        self.section = section
+
+    def data(self, role=HeaderRole.EditRole):
+        return self.model.headerData(self.section, self.orientation, role)
+
+    def setData(self, value, role=HeaderRole.EditRole):
+        return self.model.setHeaderData(self.section, self.orientation, value, role)
+
+
+class HeaderDelegate(QtWidgets.QStyledItemDelegate):
+    def createEditor(self, parent, option, header_index):
+        # type: (QtWidgets.QWidget, QtGui.QStyleOptionFrame, HeaderIndex) -> QtWidgets.QWidget
+        editor = QtWidgets.QLineEdit(parent)
+        return editor
+
+    def setEditorData(self, editor, header_index):
+        # type: (QtWidgets.QWidget, HeaderIndex) -> None
+        string = header_index.data()
+        editor.setText(string)
+
+    def setModelData(self, editor, model, header_index):
+        # type: (QtWidgets.QWidget, QtCore.QAbstractItemModel, HeaderIndex) -> None
+        string = editor.text()
+        model.setHeaderData(
+            header_index.section, header_index.orientation, string, HeaderRole.EditRole
+        )
+
+    def paint(self, painter, option, header_index):
+        # type: (QtGui.QPainterPath, QtGui.QStyleOptionFrame, HeaderIndex) -> None
+        painter.save()
+
+        frame_option = QtWidgets.QStyleOptionFrame()
+        frame_option.initFrom(self._dummy_edit)
+        frame_option.rect = option.rect
+        frame_option.lineWidth = self.style().pixelMetric(
+            QtWidgets.QStyle.PM_DefaultFrameWidth, frame_option, self._dummy_edit
+        )
+        frame_option.midLineWidth = 0
+        frame_option.state |= QtWidgets.QStyle.State_Sunken
+        if not header_index.data(HeaderRole.EditableRole):
+            frame_option ^= QtWidgets.QStyle.State_Enabled
+        frame_option.text = header_index.data()
+        frame_option.features = 0
+        # option.palette.setBrush(QtGui.QPalette.Base, QtGui.QColor("white"))
+
+        style = self.style()
+        style.drawPrimitive(
+            QtWidgets.QStyle.PE_PanelLineEdit, frame_option, painter, self
+        )
+        contents_rect = style.subElementRect(
+            QtWidgets.QStyle.SE_LineEditContents, frame_option, self._dummy_edit
+        )
+        style.drawItemText(
+            painter,
+            contents_rect,
+            QtCore.Qt.AlignCenter,
+            frame_option.palette,
+            True,
+            frame_option.text,
+        )
+
+        painter.restore()
+
+    def sizeHint(self, option, header_index):
+        # type: (QtGui.QStyleOptionFrame, HeaderIndex) -> QtCore.QSize
+        return QtCore.QSize(100, 46)
+
+    def updateEditorGeometry(self, editor, option, header_index):
+        # type: (QtWidgets.QWidget, QtGui.QStyleOptionFrame, HeaderIndex) -> None
+        pass
 
 
 class EditableHeaderView(QtWidgets.QHeaderView):
@@ -17,6 +94,7 @@ class EditableHeaderView(QtWidgets.QHeaderView):
         self._editing_widget = None
         self._editing_index = -1
         self._dummy_edit = QtWidgets.QLineEdit()
+        self.setItemDelegate(HeaderDelegate(self))
 
         self.setSectionsClickable(True)
         self.setHighlightSections(True)
@@ -31,23 +109,6 @@ class EditableHeaderView(QtWidgets.QHeaderView):
         """
         return self._editing_index
 
-    def create_widget(self, logical_index):
-        """
-        Creates the widget for the index
-
-        Args:
-            logical_index (int): Section to create the widget for
-
-        Returns:
-            QtWidgets.QWidget: Created widget
-        """
-        # Can be subclassed for custom widgets
-        text = self.get_string(logical_index)
-        widget = QtWidgets.QLineEdit(self)
-        widget.setText(text)
-        widget.editingFinished.connect(self.finish_editing)
-        return widget
-
     def edit_section(self, logical_index, focus_reason=QtCore.Qt.MouseFocusReason):
         """
         Args:
@@ -58,9 +119,16 @@ class EditableHeaderView(QtWidgets.QHeaderView):
         if self._editing_widget:
             self.finish_editing()
 
+        header_index = self.header_index(logical_index)
+        delegate = self.item_delegate_for_section(logical_index)
+
         # Both internal states must be set together to avoid corrupted state during focus changes
         self._editing_index = logical_index
-        self._editing_widget = self.create_widget(logical_index)
+        self._editing_widget = delegate.createEditor(
+            self, QtWidgets.QStyleOptionFrame(), header_index
+        )
+        delegate.setEditorData(self._editing_widget, header_index)
+        # TODO: At the moment nothing knows when to close the delegate
 
         rect = self.get_widget_geometry(logical_index)
         self._editing_widget.setGeometry(rect)
@@ -74,8 +142,9 @@ class EditableHeaderView(QtWidgets.QHeaderView):
 
         try:
             if accept_changes:
-                text = self.get_widget_text(self._editing_widget)
-                self.set_string(self._editing_index, text)
+                delegate = self.item_delegate_for_section(self._editing_index)
+                header_index = self.header_index(self._editing_index)
+                delegate.setModelData(self._editing_widget, self.model(), header_index)
         finally:
             # Internal state must be reset BEFORE abandoning the widget to GC.
             # Without this, there is a risk of focus state changes causing the
@@ -97,16 +166,6 @@ class EditableHeaderView(QtWidgets.QHeaderView):
         return self.model().headerData(
             logical_index, self.orientation(), role=HeaderRole.EditRole
         )
-
-    def get_widget_text(self, widget):
-        """
-        Args:
-            widget (QtWidgets.QWidget): Widget created by create_widget
-
-        Returns:
-            str: Text value represented in the widget
-        """
-        return widget.text()
 
     def get_header_geometry(self, logical_index):
         """
@@ -174,6 +233,19 @@ class EditableHeaderView(QtWidgets.QHeaderView):
                 half_height,
             )
 
+    def header_index(self, logical_index):
+        # type: (int) -> HeaderIndex
+        return HeaderIndex(self.model(), self.orientation(), logical_index)
+
+    def item_delegate_for_section(self, section):
+        # type: (int) -> HeaderDelegate
+        delegate = (
+            self.itemDelegateForColumn(section)
+            if self.orientation() == QtCore.Qt.Horizontal
+            else self.itemDelegateForRow(section)
+        )
+        return delegate or self.itemDelegate()
+
     def set_string(self, logical_index, string):
         """
         Args:
@@ -212,6 +284,12 @@ class EditableHeaderView(QtWidgets.QHeaderView):
                 )
             return True
         return super(EditableHeaderView, self).focusNextPrevChild(is_next)
+
+    def headerDataChanged(self, orientation, first, last):
+        # type: (QtCore.Qt.Orientation, int, int) -> None
+        print("Header data changed")
+        for i in range(first, last + 1):
+            self.updateSection(i)
 
     def mouseReleaseEvent(self, event):
         clickable = self.sectionsClickable()
@@ -271,13 +349,22 @@ class EditableHeaderView(QtWidgets.QHeaderView):
 
     def sizeHint(self):
         # type: () -> QtCore.QSize
-        size = super(EditableHeaderView, self).size()
-        if self.orientation() == QtCore.Qt.Horizontal:
-            return QtCore.QSize(size.width(), 46)
-        else:
-            # For some reason, vertical headers sizeHint doesn't work - must
-            # provide a reasonable default. Even the height is ignored though.
-            return QtCore.QSize(100, 46)
+        size = QtCore.QSize(0, 0)
+        for i in range(self.count()):
+            hint = self.sectionSizeHint(i)
+            size = size.expandedTo(hint)
+        return size
+
+    def sectionSizeHint(self, logical_index):
+        delegate = self.item_delegate_for_section(logical_index)
+        return delegate.sizeHint(QtWidgets.QStyleOptionFrame(), self.header_index(logical_index))
+
+    def viewportEvent(self, event):
+        # Update the geometry of any widget being edited if the viewport is resized
+        if isinstance(event, QtGui.QResizeEvent) and self._editing_widget is not None:
+            widget_rect = self.get_widget_geometry(self._editing_index)
+            self._editing_widget.setGeometry(widget_rect)
+        return super(EditableHeaderView, self).viewportEvent(event)
 
 
 if __name__ == "__main__":

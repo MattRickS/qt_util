@@ -90,6 +90,10 @@ class HeaderDelegate(QtWidgets.QStyledItemDelegate):
 
 
 class ComboHeaderDelegate(HeaderDelegate):
+    def __init__(self, parent=None):
+        super(ComboHeaderDelegate, self).__init__(parent)
+        self._dummy = QtWidgets.QComboBox()
+
     def createEditor(self, parent, option, header_index):
         choices = header_index.data(HeaderRole.ChoicesRole)
         editor = QtWidgets.QComboBox(parent)
@@ -112,10 +116,11 @@ class ComboHeaderDelegate(HeaderDelegate):
 
         style = QtWidgets.QApplication.style()
         opt = QtWidgets.QStyleOptionComboBox()
+        opt.initFrom(self._dummy)
         opt.rect = option.rect
         opt.currentText = header_index.data()
-        style.drawComplexControl(QtWidgets.QStyle.CC_ComboBox, opt, painter)
-        style.drawControl(QtWidgets.QStyle.CE_ComboBoxLabel, opt, painter)
+        style.drawComplexControl(QtWidgets.QStyle.CC_ComboBox, opt, painter, self._dummy)
+        style.drawControl(QtWidgets.QStyle.CE_ComboBoxLabel, opt, painter, self._dummy)
 
         painter.restore()
 
@@ -494,6 +499,9 @@ if __name__ == "__main__":
 
     v_header = EditableHeaderView(QtCore.Qt.Vertical)
     view.setVerticalHeader(v_header)
+
+    combo_delegate = ComboHeaderDelegate(view)
+    h_header.set_item_delegate_for_section(1, combo_delegate)
 
     view.show()
 

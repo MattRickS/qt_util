@@ -279,6 +279,13 @@ class EditableHeaderView(QtWidgets.QHeaderView):
             # provide a reasonable default. Even the height is ignored though.
             return QtCore.QSize(100, 46)
 
+    def viewportEvent(self, event):
+        # Update the geometry of any widget being edited if the viewport is resized
+        if isinstance(event, QtGui.QResizeEvent) and self._editing_widget is not None:
+            widget_rect = self.get_widget_geometry(self._editing_index)
+            self._editing_widget.setGeometry(widget_rect)
+        return super(EditableHeaderView, self).viewportEvent(event)
+
 
 if __name__ == "__main__":
     import sys

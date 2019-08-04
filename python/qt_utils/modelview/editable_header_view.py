@@ -6,66 +6,6 @@ class HeaderRole(object):
     BackgroundColorRole = QtCore.Qt.UserRole + 101
 
 
-class ExampleModel(QtCore.QAbstractItemModel):
-    columns = ("one", "two", "three")
-
-    def __init__(self, parent=None):
-        # type: (QtWidgets.QWidget) -> None
-        super(ExampleModel, self).__init__(parent)
-        self._data = ["1", "2", "3"]
-        self._h_strings = ["", "", ""]
-        self._v_strings = ["", "", ""]
-
-    def columnCount(self, parent=QtCore.QModelIndex()):
-        # type: (QtCore.QModelIndex) -> int
-        return 3
-
-    def data(self, index, role=QtCore.Qt.DisplayRole):
-        # type: (QtCore.QModelIndex, int) -> object
-        if not index.isValid():
-            return
-        if role == QtCore.Qt.DisplayRole:
-            return self._data[index.column()]
-
-    def flags(self, index):
-        # type: (QtCore.QModelIndex) -> QtCore.Qt.ItemFlags
-        return QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsSelectable
-
-    def headerData(self, section, orientation, role=QtCore.Qt.DisplayRole):
-        # type: (int, QtCore.Qt.Orientation, int) -> str
-        if role == QtCore.Qt.DisplayRole:
-            return self.columns[section]
-        elif role == HeaderRole.BackgroundColorRole:
-            return QtGui.QColor("red")
-        elif role == HeaderRole.EditRole:
-            if orientation == QtCore.Qt.Horizontal:
-                return self._h_strings[section]
-            else:
-                return self._v_strings[section]
-
-    def index(self, row, column, parent=QtCore.QModelIndex()):
-        # type: (int, int, QtCore.QModelIndex) -> QtCore.QModelIndex
-        return self.createIndex(row, column)
-
-    def parent(self, child):
-        # type: (QtCore.QModelIndex) -> QtCore.QModelIndex
-        return QtCore.QModelIndex()
-
-    def rowCount(self, parent=QtCore.QModelIndex()):
-        # type: (QtCore.QModelIndex) -> int
-        return 3
-
-    def setHeaderData(self, section, orientation, value, role=QtCore.Qt.EditRole):
-        if role == HeaderRole.EditRole:
-            if orientation == QtCore.Qt.Horizontal:
-                self._h_strings[section] = str(value)
-            else:
-                self._v_strings[section] = str(value)
-            self.headerDataChanged.emit(orientation, section, section)
-            return True
-        return False
-
-
 class EditableHeaderView(QtWidgets.QHeaderView):
     MARGIN = 1
 
@@ -121,6 +61,7 @@ class EditableHeaderView(QtWidgets.QHeaderView):
         # Both internal states must be set together to avoid corrupted state during focus changes
         self._editing_index = logical_index
         self._editing_widget = self.create_widget(logical_index)
+
         rect = self.get_widget_geometry(logical_index)
         self._editing_widget.setGeometry(rect)
         self._editing_widget.show()
@@ -153,7 +94,9 @@ class EditableHeaderView(QtWidgets.QHeaderView):
         Returns:
             str: Text stored for the section
         """
-        return self.model().headerData(logical_index, self.orientation(), role=HeaderRole.EditRole)
+        return self.model().headerData(
+            logical_index, self.orientation(), role=HeaderRole.EditRole
+        )
 
     def get_widget_text(self, widget):
         """
@@ -240,7 +183,10 @@ class EditableHeaderView(QtWidgets.QHeaderView):
         current = self.get_string(self._editing_index)
         if current == string:
             return
-        edited = self.model().setHeaderData(logical_index, self.orientation(), string, HeaderRole.EditRole)
+
+        edited = self.model().setHeaderData(
+            logical_index, self.orientation(), string, HeaderRole.EditRole
+        )
         self.updateSection(logical_index)
         if edited:
             self.stringEdited.emit(logical_index, string)
@@ -250,6 +196,9 @@ class EditableHeaderView(QtWidgets.QHeaderView):
     # ======================================================================== #
 
     def focusNextPrevChild(self, is_next):
+        # TODO: Focus is still behaving oddly for the view - it appears actual
+        # ModelIndexes are being tabbed through as well, which can negatively
+        # affect the viewport position
         if self._editing_index >= 0:
             if is_next:
                 self.edit_section(
@@ -335,6 +284,65 @@ if __name__ == "__main__":
     import sys
 
     app = QtWidgets.QApplication(sys.argv)
+
+    class ExampleModel(QtCore.QAbstractItemModel):
+        columns = ("one", "two", "three")
+
+        def __init__(self, parent=None):
+            # type: (QtWidgets.QWidget) -> None
+            super(ExampleModel, self).__init__(parent)
+            self._data = ["1", "2", "3"]
+            self._h_strings = ["", "", ""]
+            self._v_strings = ["", "", ""]
+
+        def columnCount(self, parent=QtCore.QModelIndex()):
+            # type: (QtCore.QModelIndex) -> int
+            return 3
+
+        def data(self, index, role=QtCore.Qt.DisplayRole):
+            # type: (QtCore.QModelIndex, int) -> object
+            if not index.isValid():
+                return
+            if role == QtCore.Qt.DisplayRole:
+                return self._data[index.column()]
+
+        def flags(self, index):
+            # type: (QtCore.QModelIndex) -> QtCore.Qt.ItemFlags
+            return QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsSelectable
+
+        def headerData(self, section, orientation, role=QtCore.Qt.DisplayRole):
+            # type: (int, QtCore.Qt.Orientation, int) -> str
+            if role == QtCore.Qt.DisplayRole:
+                return self.columns[section]
+            elif role == HeaderRole.BackgroundColorRole:
+                return QtGui.QColor("red")
+            elif role == HeaderRole.EditRole:
+                if orientation == QtCore.Qt.Horizontal:
+                    return self._h_strings[section]
+                else:
+                    return self._v_strings[section]
+
+        def index(self, row, column, parent=QtCore.QModelIndex()):
+            # type: (int, int, QtCore.QModelIndex) -> QtCore.QModelIndex
+            return self.createIndex(row, column)
+
+        def parent(self, child):
+            # type: (QtCore.QModelIndex) -> QtCore.QModelIndex
+            return QtCore.QModelIndex()
+
+        def rowCount(self, parent=QtCore.QModelIndex()):
+            # type: (QtCore.QModelIndex) -> int
+            return 3
+
+        def setHeaderData(self, section, orientation, value, role=QtCore.Qt.EditRole):
+            if role == HeaderRole.EditRole:
+                if orientation == QtCore.Qt.Horizontal:
+                    self._h_strings[section] = str(value)
+                else:
+                    self._v_strings[section] = str(value)
+                self.headerDataChanged.emit(orientation, section, section)
+                return True
+            return False
 
     def debug(*args, **kwargs):
         print("Signal received:", args, kwargs)

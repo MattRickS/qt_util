@@ -1,6 +1,71 @@
 from PySide2 import QtCore, QtGui, QtWidgets
 
 
+class HeaderRole(object):
+    EditRole = QtCore.Qt.EditRole
+    BackgroundColorRole = QtCore.Qt.UserRole + 101
+
+
+class ExampleModel(QtCore.QAbstractItemModel):
+    columns = ("one", "two", "three")
+
+    def __init__(self, parent=None):
+        # type: (QtWidgets.QWidget) -> None
+        super(ExampleModel, self).__init__(parent)
+        self._data = ["1", "2", "3"]
+        self._h_strings = ["", "", ""]
+        self._v_strings = ["", "", ""]
+
+    def columnCount(self, parent=QtCore.QModelIndex()):
+        # type: (QtCore.QModelIndex) -> int
+        return 3
+
+    def data(self, index, role=QtCore.Qt.DisplayRole):
+        # type: (QtCore.QModelIndex, int) -> object
+        if not index.isValid():
+            return
+        if role == QtCore.Qt.DisplayRole:
+            return self._data[index.column()]
+
+    def flags(self, index):
+        # type: (QtCore.QModelIndex) -> QtCore.Qt.ItemFlags
+        return QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsSelectable
+
+    def headerData(self, section, orientation, role=QtCore.Qt.DisplayRole):
+        # type: (int, QtCore.Qt.Orientation, int) -> str
+        if role == QtCore.Qt.DisplayRole:
+            return self.columns[section]
+        elif role == HeaderRole.BackgroundColorRole:
+            return QtGui.QColor("red")
+        elif role == HeaderRole.EditRole:
+            if orientation == QtCore.Qt.Horizontal:
+                return self._h_strings[section]
+            else:
+                return self._v_strings[section]
+
+    def index(self, row, column, parent=QtCore.QModelIndex()):
+        # type: (int, int, QtCore.QModelIndex) -> QtCore.QModelIndex
+        return self.createIndex(row, column)
+
+    def parent(self, child):
+        # type: (QtCore.QModelIndex) -> QtCore.QModelIndex
+        return QtCore.QModelIndex()
+
+    def rowCount(self, parent=QtCore.QModelIndex()):
+        # type: (QtCore.QModelIndex) -> int
+        return 3
+
+    def setHeaderData(self, section, orientation, value, role=QtCore.Qt.EditRole):
+        if role == HeaderRole.EditRole:
+            if orientation == QtCore.Qt.Horizontal:
+                self._h_strings[section] = str(value)
+            else:
+                self._v_strings[section] = str(value)
+            self.headerDataChanged.emit(orientation, section, section)
+            return True
+        return False
+
+
 class EditableHeaderView(QtWidgets.QHeaderView):
     MARGIN = 1
 
@@ -9,7 +74,6 @@ class EditableHeaderView(QtWidgets.QHeaderView):
 
     def __init__(self, orientation):
         super(EditableHeaderView, self).__init__(orientation)
-        self._strings = []
         self._editing_widget = None
         self._editing_index = -1
         self._dummy_edit = QtWidgets.QLineEdit()
@@ -38,13 +102,13 @@ class EditableHeaderView(QtWidgets.QHeaderView):
             QtWidgets.QWidget: Created widget
         """
         # Can be subclassed for custom widgets
-        text = self._strings[logical_index]
+        text = self.get_string(logical_index)
         widget = QtWidgets.QLineEdit(self)
         widget.setText(text)
-        widget.editingFinished.connect(self.finalise_widget)
+        widget.editingFinished.connect(self.finish_editing)
         return widget
 
-    def edit_widget(self, logical_index, focus_reason=QtCore.Qt.MouseFocusReason):
+    def edit_section(self, logical_index, focus_reason=QtCore.Qt.MouseFocusReason):
         """
         Args:
             logical_index (int): Section to begin editing
@@ -52,7 +116,7 @@ class EditableHeaderView(QtWidgets.QHeaderView):
                 widget's focus
         """
         if self._editing_widget:
-            self.finalise_widget()
+            self.finish_editing()
 
         # Both internal states must be set together to avoid corrupted state during focus changes
         self._editing_index = logical_index
@@ -62,12 +126,11 @@ class EditableHeaderView(QtWidgets.QHeaderView):
         self._editing_widget.show()
         self._editing_widget.setFocus(focus_reason)
 
-    def finalise_widget(self, accept_changes=True):
+    def finish_editing(self, accept_changes=True):
         """ Submits and kills the current widget being edited """
         if self._editing_widget is None:
             return
 
-        self._editing_widget.blockSignals(True)
         try:
             if accept_changes:
                 text = self.get_widget_text(self._editing_widget)
@@ -77,6 +140,7 @@ class EditableHeaderView(QtWidgets.QHeaderView):
             # Without this, there is a risk of focus state changes causing the
             # internal state to get corrupted and no widgets are closed.
             widget = self._editing_widget
+            self.updateSection(self._editing_index)
             self._editing_widget = None
             self._editing_index = -1
             widget.setParent(None)
@@ -89,14 +153,7 @@ class EditableHeaderView(QtWidgets.QHeaderView):
         Returns:
             str: Text stored for the section
         """
-        return self._strings[logical_index]
-
-    def get_strings(self):
-        """
-        Returns:
-            list[str]: List of strings ordered by logical index
-        """
-        return self._strings[:]
+        return self.model().headerData(logical_index, self.orientation(), role=HeaderRole.EditRole)
 
     def get_widget_text(self, widget):
         """
@@ -174,45 +231,19 @@ class EditableHeaderView(QtWidgets.QHeaderView):
                 half_height,
             )
 
-    def reset_strings(self):
-        """ Clears all string values """
-        self._strings = [""] * self.count()
-        self.stringsReset.emit()
-
     def set_string(self, logical_index, string):
         """
         Args:
             logical_index (int): Section to set the value for
             string (str): Text to set in the header
         """
-        if self._strings[logical_index] == string:
+        current = self.get_string(self._editing_index)
+        if current == string:
             return
-        self._strings[logical_index] = string
-        self.stringEdited.emit(logical_index, string)
+        edited = self.model().setHeaderData(logical_index, self.orientation(), string, HeaderRole.EditRole)
         self.updateSection(logical_index)
-
-    def set_strings(self, strings):
-        """
-        Raises:
-            ValueError: If the number of strings don't match the section count
-
-        Args:
-            strings (list[str]): List of strings to set - must be the same
-                number of sections in the model
-        """
-        if len(strings) != self.count():
-            raise ValueError(
-                "Invalid number of strings: {}/{}".format(len(strings), self.count())
-            )
-        self._strings = list(strings)
-        self.update()
-        self.stringsReset.emit()
-
-    def on_sections_inserted(self, index, first, last):
-        self._strings[first:first] = [""] * (1 + last - first)
-
-    def on_sections_removed(self, index, first, last):
-        del self._strings[first : last + 1]
+        if edited:
+            self.stringEdited.emit(logical_index, string)
 
     # ======================================================================== #
     #  Subclassed
@@ -221,12 +252,12 @@ class EditableHeaderView(QtWidgets.QHeaderView):
     def focusNextPrevChild(self, is_next):
         if self._editing_index >= 0:
             if is_next:
-                self.edit_widget(
+                self.edit_section(
                     (self._editing_index + 1) % self.count(),
                     focus_reason=QtCore.Qt.TabFocusReason,
                 )
             else:
-                self.edit_widget(
+                self.edit_section(
                     (self._editing_index - 1) % self.count(),
                     focus_reason=QtCore.Qt.BacktabFocusReason,
                 )
@@ -240,7 +271,7 @@ class EditableHeaderView(QtWidgets.QHeaderView):
         logical_index = self.logicalIndexAt(event.pos())
         rect = self.get_widget_geometry(logical_index)
         if rect.contains(event.pos()):
-            self.edit_widget(logical_index)
+            self.edit_section(logical_index)
             # Prevent interaction with the widget region from triggering a
             # section click, otherwise it will be sorted (if sorting is
             # enabled). Note: setSortIndicator is not virtual so overriding
@@ -265,7 +296,7 @@ class EditableHeaderView(QtWidgets.QHeaderView):
         )
         option.midLineWidth = 0
         option.state |= QtWidgets.QStyle.State_Sunken
-        option.text = self._strings[logical_index]
+        option.text = self.get_string(logical_index)
         option.features = 0
         # option.palette.setBrush(QtGui.QPalette.Base, QtGui.QColor("white"))
 
@@ -289,16 +320,6 @@ class EditableHeaderView(QtWidgets.QHeaderView):
         header_geo = self.get_header_geometry(logical_index)
         super(EditableHeaderView, self).paintSection(painter, header_geo, logical_index)
 
-    def setModel(self, model):
-        super(EditableHeaderView, self).setModel(model)
-        if self.orientation() == QtCore.Qt.Horizontal:
-            model.columnsInserted.connect(self.on_sections_inserted)
-            model.columnsRemoved.connect(self.on_sections_removed)
-        else:
-            model.rowsInserted.connect(self.on_sections_inserted)
-            model.rowsRemoved.connect(self.on_sections_removed)
-        self.reset_strings()
-
     def sizeHint(self):
         # type: () -> QtCore.QSize
         size = super(EditableHeaderView, self).size()
@@ -315,53 +336,23 @@ if __name__ == "__main__":
 
     app = QtWidgets.QApplication(sys.argv)
 
-    class EntityModel(QtCore.QAbstractItemModel):
-        columns = ("one", "two", "three")
+    def debug(*args, **kwargs):
+        print("Signal received:", args, kwargs)
 
-        def __init__(self, entities=None, parent=None):
-            # type: (list, QtWidgets.QWidget) -> None
-            super(EntityModel, self).__init__(parent)
-            self._data = ["1", "2", "3"]
-
-        def columnCount(self, parent=QtCore.QModelIndex()):
-            # type: (QtCore.QModelIndex) -> int
-            return 3
-
-        def data(self, index, role=QtCore.Qt.DisplayRole):
-            # type: (QtCore.QModelIndex, int) -> object
-            if not index.isValid():
-                return
-            if role == QtCore.Qt.DisplayRole:
-                return self._data[index.column()]
-
-        def flags(self, index):
-            # type: (QtCore.QModelIndex) -> QtCore.Qt.ItemFlags
-            return QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsSelectable
-
-        def headerData(self, section, orientation, role=QtCore.Qt.DisplayRole):
-            # type: (int, QtCore.Qt.Orientation, int) -> str
-            if role == QtCore.Qt.DisplayRole:
-                return self.columns[section]
-
-        def index(self, row, column, parent=QtCore.QModelIndex()):
-            # type: (int, int, QtCore.QModelIndex) -> QtCore.QModelIndex
-            return self.createIndex(row, column)
-
-        def parent(self, child):
-            # type: (QtCore.QModelIndex) -> QtCore.QModelIndex
-            return QtCore.QModelIndex()
-
-        def rowCount(self, parent=QtCore.QModelIndex()):
-            # type: (QtCore.QModelIndex) -> int
-            return 3
-
-    model = EntityModel()
+    model = ExampleModel()
     view = QtWidgets.QTableView()
     view.setModel(model)
+
     h_header = EditableHeaderView(QtCore.Qt.Horizontal)
+    h_header.stringEdited.connect(debug)
+    h_header.stringsReset.connect(debug)
     view.setHorizontalHeader(h_header)
+
     v_header = EditableHeaderView(QtCore.Qt.Vertical)
+    v_header.stringEdited.connect(debug)
+    v_header.stringsReset.connect(debug)
     view.setVerticalHeader(v_header)
+
     view.show()
 
     app.exec_()

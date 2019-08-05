@@ -178,18 +178,19 @@ class EditableHeaderView(QtWidgets.QHeaderView):
 
         header_index = self.header_index(logical_index)
         delegate = self.item_delegate_for_section(logical_index)
+        widget_rect = self.get_widget_geometry(logical_index)
+
+        opt = self.get_section_style_option(logical_index)
+        opt.rect = widget_rect
 
         # Both internal states must be set together to avoid corrupted state during focus changes
         self._editing_index = logical_index
-        self._editing_widget = delegate.createEditor(
-            self, QtWidgets.QStyleOptionFrame(), header_index
-        )
+        self._editing_widget = delegate.createEditor(self, opt, header_index)
         # TODO: At the moment nothing knows when to close the delegate unless
         # the delegate itself specifies it. Ideally there should be an event
         # filter of some sort for deducing when an editor can be closed
 
-        rect = self.get_widget_geometry(logical_index)
-        self._editing_widget.setGeometry(rect)
+        self._editing_widget.setGeometry(widget_rect)
 
         delegate.setEditorData(self._editing_widget, header_index)
         self._editing_widget.show()
@@ -261,6 +262,147 @@ class EditableHeaderView(QtWidgets.QHeaderView):
                 )
             else:
                 raise ValueError("Unknown positioning: {}".format(self._positioning))
+
+    def get_section_style_option(self, logical_index):
+        # type: (int) -> QtWidgets.QStyleOptionHeader
+        model = self.model()
+        orientation = self.orientation()
+        root = self.rootIndex()
+        selection_model = self.selectionModel()
+        style = self.style()
+
+        opt = QtWidgets.QStyleOptionHeader()
+        self.initStyleOption(opt)
+
+        # State
+        state = QtWidgets.QStyle.State_None
+        if self.isEnabled():
+            state |= QtWidgets.QStyle.State_Enabled
+        if self.window().isActiveWindow():
+            state |= QtWidgets.QStyle.State_Active
+        if self.sectionsClickable() and selection_model and self.highlightSections():
+            if orientation == QtCore.Qt.Horizontal:
+                if selection_model.columnIntersectsSelection(logical_index, root):
+                    state |= QtWidgets.QStyle.State_On
+                if selection_model.isColumnSelected(logical_index, root):
+                    state |= QtWidgets.QStyle.State_Sunken
+            else:
+                if selection_model.rowIntersectsSelection(logical_index, root):
+                    state |= QtWidgets.QStyle.State_On
+                if selection_model.isRowSelected(logical_index, root):
+                    state |= QtWidgets.QStyle.State_Sunken
+        opt.state |= state
+
+        # Margin
+        margin = 2 * style.pixelMetric(QtWidgets.QStyle.PM_HeaderMargin, opt, self)
+        header_arrow_alignment = style.styleHint(
+            QtWidgets.QStyle.SH_Header_ArrowAlignment, opt, self
+        )
+        is_header_arrow_on_the_side = header_arrow_alignment & QtCore.Qt.AlignVCenter
+        if (
+            self.isSortIndicatorShown()
+            and self.sortIndicatorSection() == logical_index
+            and is_header_arrow_on_the_side
+        ):
+            margin += style.pixelMetric(QtWidgets.QStyle.PM_HeaderMarkSize, opt, self)
+
+        # Icon
+        opt.iconAlignment = QtCore.Qt.AlignVCenter
+        icon = model.headerData(logical_index, orientation, QtCore.Qt.DecorationRole)
+        if icon and not icon.isNull():
+            opt.icon = icon
+            margin += style.pixelMetric(
+                QtWidgets.QStyle.PM_SmallIconSize, opt, self
+            ) + style.pixelMetric(QtWidgets.QStyle.PM_HeaderMargin, opt, self)
+
+        # Text
+        text_alignment = model.headerData(
+            logical_index, orientation, QtCore.Qt.TextAlignmentRole
+        )
+
+        opt.textAlignment = text_alignment or self.defaultAlignment()
+        opt.text = model.headerData(logical_index, orientation, QtCore.Qt.DisplayRole)
+        if self.textElideMode() != QtCore.Qt.ElideNone:
+            text_rect = style.subElementRect(QtWidgets.QStyle.SE_HeaderLabel, opt, self)
+            opt.text = opt.fontMetrics.elidedText(
+                opt.text, self.textElideMode(), text_rect.width() - margin
+            )
+
+        # Brushes
+        background_brush = model.headerData(
+            logical_index, orientation, QtCore.Qt.BackgroundRole
+        )
+        if background_brush is not None:
+            brush = QtGui.QBrush(background_brush)
+            opt.palette.setBrush(QtGui.QPalette.Button, brush)
+            opt.palette.setBrush(QtGui.QPalette.Window, brush)
+
+        foreground_brush = model.headerData(
+            logical_index, orientation, QtCore.Qt.ForegroundRole
+        )
+        if foreground_brush is not None:
+            opt.palette.setBrush(
+                QtGui.QPalette.ButtonText, QtGui.QBrush(foreground_brush)
+            )
+
+        # Header section attributes
+        if self.isSortIndicatorShown() and self.sortIndicatorSection() == logical_index:
+            opt.sortIndicator = (
+                QtWidgets.QStyleOptionHeader.SortDown
+                if (self.sortIndicatorOrder() == QtCore.Qt.AscendingOrder)
+                else QtWidgets.QStyleOptionHeader.SortUp
+            )
+        opt.section = logical_index
+        opt.orientation = orientation
+
+        # Position
+        visual = self.visualIndex(logical_index)
+        first = self.logicalIndex(0) == logical_index
+        last = self.logicalIndex(self.count() - 1) == logical_index
+        if first and last:
+            opt.position = QtWidgets.QStyleOptionHeader.OnlyOneSection
+        elif first:
+            opt.position = (
+                QtWidgets.QStyleOptionHeader.End
+                if self.isRightToLeft()
+                else QtWidgets.QStyleOptionHeader.Beginning
+            )
+        elif last:
+            opt.position = (
+                QtWidgets.QStyleOptionHeader.Beginning
+                if self.isRightToLeft()
+                else QtWidgets.QStyleOptionHeader.End
+            )
+        else:
+            opt.position = QtWidgets.QStyleOptionHeader.Middle
+
+        # Selection
+        if self.orientation() == QtCore.Qt.Horizontal:
+            previous_selected = self.selectionModel().isColumnSelected(
+                self.logicalIndex(visual - 1), root
+            )
+            next_selected = self.selectionModel().isColumnSelected(
+                self.logicalIndex(visual + 1), root
+            )
+        else:
+            previous_selected = self.selectionModel().isRowSelected(
+                self.logicalIndex(visual - 1), root
+            )
+            next_selected = self.selectionModel().isRowSelected(
+                self.logicalIndex(visual + 1), root
+            )
+        if previous_selected and next_selected:
+            opt.selectedPosition = (
+                QtWidgets.QStyleOptionHeader.NextAndPreviousAreSelected
+            )
+        elif previous_selected:
+            opt.selectedPosition = QtWidgets.QStyleOptionHeader.PreviousIsSelected
+        elif next_selected:
+            opt.selectedPosition = QtWidgets.QStyleOptionHeader.NextIsSelected
+        else:
+            opt.selectedPosition = QtWidgets.QStyleOptionHeader.NotAdjacent
+
+        return opt
 
     def get_widget_geometry(self, logical_index):
         """
@@ -416,14 +558,12 @@ class EditableHeaderView(QtWidgets.QHeaderView):
         # type: (QtGui.QPainter, QtCore.QRect, int) -> None
         # Render the filter widget in the header widget rect
 
-        option = QtWidgets.QStyleOptionFrame()
-        option.rect = self.get_widget_geometry(logical_index)
-        option.state |= QtWidgets.QStyle.State_Sunken
-        # option.palette.setBrush(QtGui.QPalette.Base, QtGui.QColor("white"))
+        opt = self.get_section_style_option(logical_index)
+        opt.rect = self.get_widget_geometry(logical_index)
 
         painter.save()
         delegate = self.item_delegate_for_section(logical_index)
-        delegate.paint(painter, option, self.header_index(logical_index))
+        delegate.paint(painter, opt, self.header_index(logical_index))
         painter.restore()
 
         # # Render the original header section in the remaining area

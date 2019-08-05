@@ -69,7 +69,14 @@ class HeaderDelegate(QtWidgets.QStyledItemDelegate):
             opt.state &= ~QtWidgets.QStyle.State_Enabled
         opt.text = header_index.data()
         opt.features = 0
-        # option.palette.setBrush(QtGui.QPalette.Base, QtGui.QColor("red"))
+
+        bg_colour = model.headerData(
+            header_index.section,
+            header_index.orientation,
+            HeaderRole.BackgroundColorRole,
+        )
+        if bg_colour is not None:
+            opt.palette.setBrush(self._dummy.backgroundRole(), bg_colour)
 
         style.drawPrimitive(
             QtWidgets.QStyle.PE_PanelLineEdit, opt, painter, self.parent()
@@ -682,7 +689,7 @@ if __name__ == "__main__":
             # type: (int, QtCore.Qt.Orientation, int) -> object
             if role == QtCore.Qt.DisplayRole:
                 return self.columns[section]
-            elif role == HeaderRole.BackgroundColorRole:
+            elif role == HeaderRole.BackgroundColorRole and section == 2:
                 return QtGui.QColor("red")
             elif role == HeaderRole.EditableRole:
                 return section != 0
@@ -734,6 +741,7 @@ if __name__ == "__main__":
     combo_delegate = ComboHeaderDelegate(view)
     h_header.set_item_delegate_for_section(1, combo_delegate)
     v_header.set_item_delegate_for_section(0, combo_delegate)
+    v_header.set_item_delegate_for_section(2, combo_delegate)
 
     view.show()
 

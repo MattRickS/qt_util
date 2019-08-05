@@ -49,33 +49,42 @@ class HeaderDelegate(QtWidgets.QStyledItemDelegate):
         painter.save()
 
         style = QtWidgets.QApplication.style()
-        frame_option = QtWidgets.QStyleOptionFrame()
-        frame_option.initFrom(self._dummy)
-        frame_option.rect = option.rect
-        frame_option.lineWidth = style.pixelMetric(
-            QtWidgets.QStyle.PM_DefaultFrameWidth, frame_option, self._dummy
+        opt = QtWidgets.QStyleOptionFrame()
+        opt.initFrom(self._dummy)
+        opt.rect = option.rect
+        opt.lineWidth = style.pixelMetric(
+            QtWidgets.QStyle.PM_DefaultFrameWidth, opt, self._dummy
         )
-        frame_option.midLineWidth = 0
-        frame_option.state |= QtWidgets.QStyle.State_Sunken
-        if not header_index.data(HeaderRole.EditableRole):
-            frame_option ^= QtWidgets.QStyle.State_Enabled
-        frame_option.text = header_index.data()
-        frame_option.features = 0
-        # option.palette.setBrush(QtGui.QPalette.Base, QtGui.QColor("white"))
+        opt.midLineWidth = 0
+        opt.state |= QtWidgets.QStyle.State_Sunken
+        is_enabled = (
+            bool(option.state & QtWidgets.QStyle.State_Enabled)
+            and header_index.data(HeaderRole.EditableRole) is not False
+        )
+        if is_enabled:
+            opt.state |= QtWidgets.QStyle.State_Enabled
+            opt.state &= ~QtWidgets.QStyle.State_ReadOnly
+        else:
+            opt.state |= QtWidgets.QStyle.State_ReadOnly
+            opt.state &= ~QtWidgets.QStyle.State_Enabled
+        opt.text = header_index.data()
+        opt.features = 0
+        # option.palette.setBrush(QtGui.QPalette.Base, QtGui.QColor("red"))
 
         style.drawPrimitive(
-            QtWidgets.QStyle.PE_PanelLineEdit, frame_option, painter, self.parent()
+            QtWidgets.QStyle.PE_PanelLineEdit, opt, painter, self.parent()
         )
         contents_rect = style.subElementRect(
-            QtWidgets.QStyle.SE_LineEditContents, frame_option, self._dummy
+            QtWidgets.QStyle.SE_LineEditContents, opt, self._dummy
         )
         style.drawItemText(
             painter,
             contents_rect,
             QtCore.Qt.AlignCenter,
-            frame_option.palette,
-            True,
-            frame_option.text,
+            opt.palette,
+            is_enabled,
+            opt.text,
+            QtGui.QPalette.Text if is_enabled else QtGui.QPalette.Shadow,
         )
 
         painter.restore()
@@ -123,12 +132,29 @@ class ComboHeaderDelegate(HeaderDelegate):
         style = QtWidgets.QApplication.style()
         opt = QtWidgets.QStyleOptionComboBox()
         opt.initFrom(self._dummy)
+
+        is_enabled = (
+            bool(option.state & QtWidgets.QStyle.State_Enabled)
+            and header_index.data(HeaderRole.EditableRole) is not False
+        )
+        opt.editable = is_enabled
+        if is_enabled:
+            opt.state |= QtWidgets.QStyle.State_Enabled
+        else:
+            opt.state &= ~QtWidgets.QStyle.State_Enabled
+
+        painter.setPen(
+            self._dummy.palette().color(
+                QtGui.QPalette.Text if is_enabled else QtGui.QPalette.Shadow
+            )
+        )
+
         opt.rect = option.rect
         opt.currentText = header_index.data()
         style.drawComplexControl(
             QtWidgets.QStyle.CC_ComboBox, opt, painter, self._dummy
         )
-        style.drawControl(QtWidgets.QStyle.CE_ComboBoxLabel, opt, painter, self._dummy)
+        style.drawControl(QtWidgets.QStyle.CE_ComboBoxLabel, opt, painter)
 
         painter.restore()
 
@@ -158,7 +184,7 @@ class EditableHeaderView(QtWidgets.QHeaderView):
             self.setDefaultSectionSize(46)
 
     @property
-    def edit_index(self):
+    def editing_index(self):
         """
         Returns:
             int: Logical index currently being edited, or -1 if nothing is being
@@ -175,6 +201,16 @@ class EditableHeaderView(QtWidgets.QHeaderView):
         """
         if self._editing_widget:
             self.finish_editing()
+
+        # If EditableRole is not defined, assume True. If explicitly set to False, prevent editing
+        if (
+            self.model().headerData(
+                logical_index, self.orientation(), HeaderRole.EditableRole
+            )
+            is False
+        ):
+            print("Section is not editable: {}".format(logical_index))
+            return
 
         header_index = self.header_index(logical_index)
         delegate = self.item_delegate_for_section(logical_index)
@@ -278,6 +314,8 @@ class EditableHeaderView(QtWidgets.QHeaderView):
         state = QtWidgets.QStyle.State_None
         if self.isEnabled():
             state |= QtWidgets.QStyle.State_Enabled
+        else:
+            state |= QtWidgets.QStyle.State_ReadOnly
         if self.window().isActiveWindow():
             state |= QtWidgets.QStyle.State_Active
         if self.sectionsClickable() and selection_model and self.highlightSections():
@@ -594,7 +632,7 @@ class EditableHeaderView(QtWidgets.QHeaderView):
         # type: () -> QtCore.QSize
         size = super(EditableHeaderView, self).sizeHint()
         if self._positioning == self.Right:
-            width = size.width() + 100
+            width = size.width() * 2
             height = size.height()
         elif self._positioning == self.Below:
             width = size.width()
@@ -625,7 +663,7 @@ if __name__ == "__main__":
             # type: (QtWidgets.QWidget) -> None
             super(ExampleModel, self).__init__(parent)
             self._data = ["1", "2", "3"]
-            self._h_strings = ["", "ghi", ""]
+            self._h_strings = ["abc", "ghi", ""]
             self._v_strings = ["", "", "789"]
 
         def columnCount(self, parent=QtCore.QModelIndex()):
@@ -650,7 +688,7 @@ if __name__ == "__main__":
             elif role == HeaderRole.BackgroundColorRole:
                 return QtGui.QColor("red")
             elif role == HeaderRole.EditableRole:
-                return True
+                return section != 0
             elif role == HeaderRole.EditRole:
                 if orientation == QtCore.Qt.Horizontal:
                     return self._h_strings[section]

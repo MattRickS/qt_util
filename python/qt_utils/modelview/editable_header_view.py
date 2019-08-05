@@ -90,28 +90,34 @@ class HeaderDelegate(QtWidgets.QStyledItemDelegate):
 
 
 class ComboHeaderDelegate(HeaderDelegate):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, choices_role=HeaderRole.ChoicesRole):
         super(ComboHeaderDelegate, self).__init__(parent)
         self._dummy = QtWidgets.QComboBox()
+        self._choices_role = choices_role
 
     def createEditor(self, parent, option, header_index):
-        choices = header_index.data(HeaderRole.ChoicesRole)
+        # type: (QtWidgets.QWidget, QtGui.QStyleOptionFrame, HeaderIndex) -> QtWidgets.QComboBox
+        choices = header_index.data(self._choices_role)
         editor = QtWidgets.QComboBox(parent)
         editor.addItems(choices)
         editor.activated.connect(lambda: self.commitData.emit(editor))
         return editor
 
     def setEditorData(self, editor, header_index):
+        # type: (QtWidgets.QComboBox, HeaderIndex) -> None
         current = header_index.data()
         editor.setCurrentText(current)
+        editor.showPopup()
 
     def setModelData(self, editor, model, header_index):
+        # type: (QtWidgets.QComboBox, QtCore.QAbstractItemModel, HeaderIndex) -> None
         value = editor.currentText()
         model.setHeaderData(
             header_index.section, header_index.orientation, value, HeaderRole.EditRole
         )
 
     def paint(self, painter, option, header_index):
+        # type: (QtGui.QPainterPath, QtGui.QStyleOptionFrame, HeaderIndex) -> None
         painter.save()
 
         style = QtWidgets.QApplication.style()
@@ -119,7 +125,9 @@ class ComboHeaderDelegate(HeaderDelegate):
         opt.initFrom(self._dummy)
         opt.rect = option.rect
         opt.currentText = header_index.data()
-        style.drawComplexControl(QtWidgets.QStyle.CC_ComboBox, opt, painter, self._dummy)
+        style.drawComplexControl(
+            QtWidgets.QStyle.CC_ComboBox, opt, painter, self._dummy
+        )
         style.drawControl(QtWidgets.QStyle.CE_ComboBoxLabel, opt, painter, self._dummy)
 
         painter.restore()
@@ -137,6 +145,9 @@ class EditableHeaderView(QtWidgets.QHeaderView):
         self.setSectionsClickable(True)
         self.setHighlightSections(True)
         self.setDefaultAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignTop)
+
+        if orientation == QtCore.Qt.Vertical:
+            self.setDefaultSectionSize(46)
 
     @property
     def edit_index(self):
@@ -165,13 +176,14 @@ class EditableHeaderView(QtWidgets.QHeaderView):
         self._editing_widget = delegate.createEditor(
             self, QtWidgets.QStyleOptionFrame(), header_index
         )
-        delegate.setEditorData(self._editing_widget, header_index)
         # TODO: At the moment nothing knows when to close the delegate unless
         # the delegate itself specifies it. Ideally there should be an event
         # filter of some sort for deducing when an editor can be closed
 
         rect = self.get_widget_geometry(logical_index)
         self._editing_widget.setGeometry(rect)
+
+        delegate.setEditorData(self._editing_widget, header_index)
         self._editing_widget.show()
         self._editing_widget.setFocus(focus_reason)
 
@@ -412,7 +424,9 @@ class EditableHeaderView(QtWidgets.QHeaderView):
 
     def sectionSizeHint(self, logical_index):
         delegate = self.item_delegate_for_section(logical_index)
-        return delegate.sizeHint(QtWidgets.QStyleOptionFrame(), self.header_index(logical_index))
+        return delegate.sizeHint(
+            QtWidgets.QStyleOptionFrame(), self.header_index(logical_index)
+        )
 
     def viewportEvent(self, event):
         # Update the geometry of any widget being edited if the viewport is resized
@@ -482,12 +496,17 @@ if __name__ == "__main__":
 
         def setHeaderData(self, section, orientation, value, role=QtCore.Qt.EditRole):
             if role == HeaderRole.EditRole:
-                if orientation == QtCore.Qt.Horizontal:
-                    self._h_strings[section] = str(value)
-                else:
-                    self._v_strings[section] = str(value)
-                self.headerDataChanged.emit(orientation, section, section)
-                return True
+                value = str(value)
+                string_list = (
+                    self._h_strings
+                    if orientation == QtCore.Qt.Horizontal
+                    else self._v_strings
+                )
+                if string_list[section] != value:
+                    string_list[section] = value
+                    self.headerDataChanged.emit(orientation, section, section)
+                    return True
+
             return False
 
     model = ExampleModel()
@@ -504,6 +523,11 @@ if __name__ == "__main__":
     h_header.set_item_delegate_for_section(1, combo_delegate)
 
     view.show()
+
+    def debug(*args, **kwargs):
+        print(args, kwargs)
+
+    model.headerDataChanged.connect(debug)
 
     app.exec_()
     sys.exit()

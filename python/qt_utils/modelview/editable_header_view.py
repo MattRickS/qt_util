@@ -137,7 +137,6 @@ class ComboHeaderDelegate(HeaderDelegate):
             bool(option.state & QtWidgets.QStyle.State_Enabled)
             and header_index.data(HeaderRole.EditableRole) is not False
         )
-        opt.editable = is_enabled
         if is_enabled:
             opt.state |= QtWidgets.QStyle.State_Enabled
         else:
@@ -168,7 +167,7 @@ class EditableHeaderView(QtWidgets.QHeaderView):
     def __init__(self, orientation, positioning=Below):
         super(EditableHeaderView, self).__init__(orientation)
         if positioning not in (self.Right, self.Below):
-            raise ValueError("Unknown positioning: {}".format(self._positioning))
+            raise ValueError("Unknown positioning: {}".format(positioning))
 
         self._positioning = positioning
 
@@ -314,8 +313,6 @@ class EditableHeaderView(QtWidgets.QHeaderView):
         state = QtWidgets.QStyle.State_None
         if self.isEnabled():
             state |= QtWidgets.QStyle.State_Enabled
-        else:
-            state |= QtWidgets.QStyle.State_ReadOnly
         if self.window().isActiveWindow():
             state |= QtWidgets.QStyle.State_Active
         if self.sectionsClickable() and selection_model and self.highlightSections():
@@ -736,6 +733,7 @@ if __name__ == "__main__":
 
     combo_delegate = ComboHeaderDelegate(view)
     h_header.set_item_delegate_for_section(1, combo_delegate)
+    v_header.set_item_delegate_for_section(0, combo_delegate)
 
     view.show()
 

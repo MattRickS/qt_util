@@ -170,10 +170,11 @@ class EditableHeaderView(QtWidgets.QHeaderView):
 
     Right = 0
     Below = 1
+    Fill = 2
 
     def __init__(self, orientation, positioning=Below):
         super(EditableHeaderView, self).__init__(orientation)
-        if positioning not in (self.Right, self.Below):
+        if positioning not in (self.Right, self.Below, self.Fill):
             raise ValueError("Unknown positioning: {}".format(positioning))
 
         self._positioning = positioning
@@ -186,6 +187,8 @@ class EditableHeaderView(QtWidgets.QHeaderView):
         self.setHighlightSections(True)
         self.setDefaultAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignTop)
 
+        # The only way to reliably ensure the row height will fit both the
+        # header and widget by default.
         if orientation == QtCore.Qt.Vertical and self._positioning == self.Below:
             self.setDefaultSectionSize(46)
 
@@ -283,6 +286,8 @@ class EditableHeaderView(QtWidgets.QHeaderView):
                     half_width,
                     self.height(),
                 )
+            elif self._positioning == self.Fill:
+                return QtCore.QRect()
             else:
                 raise ValueError("Unknown positioning: {}".format(self._positioning))
         else:
@@ -302,6 +307,8 @@ class EditableHeaderView(QtWidgets.QHeaderView):
                     half_width,
                     self.sectionSize(logical_index) - self.MARGIN * 2,
                 )
+            elif self._positioning == self.Fill:
+                return QtCore.QRect()
             else:
                 raise ValueError("Unknown positioning: {}".format(self._positioning))
 
@@ -471,6 +478,13 @@ class EditableHeaderView(QtWidgets.QHeaderView):
                     half_width,
                     self.height(),
                 )
+            elif self._positioning == self.Fill:
+                return QtCore.QRect(
+                    self.sectionViewportPosition(logical_index),
+                    0,
+                    self.sectionSize(logical_index),
+                    self.height(),
+                )
             else:
                 raise ValueError("Unknown positioning: {}".format(self._positioning))
         else:
@@ -488,6 +502,13 @@ class EditableHeaderView(QtWidgets.QHeaderView):
                     half_width,
                     self.sectionViewportPosition(logical_index) + self.MARGIN,
                     half_width,
+                    self.sectionSize(logical_index) - self.MARGIN * 2,
+                )
+            elif self._positioning == self.Fill:
+                return QtCore.QRect(
+                    0,
+                    self.sectionViewportPosition(logical_index) + self.MARGIN,
+                    self.width(),
                     self.sectionSize(logical_index) - self.MARGIN * 2,
                 )
             else:
@@ -641,6 +662,9 @@ class EditableHeaderView(QtWidgets.QHeaderView):
         elif self._positioning == self.Below:
             width = size.width()
             height = size.height() * 2
+        elif self._positioning == self.Fill:
+            width = size.width()
+            height = size.height()
         else:
             raise ValueError("Unknown positioning: {}".format(self._positioning))
 

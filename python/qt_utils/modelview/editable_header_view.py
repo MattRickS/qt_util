@@ -136,8 +136,16 @@ class ComboHeaderDelegate(HeaderDelegate):
 class EditableHeaderView(QtWidgets.QHeaderView):
     MARGIN = 1
 
-    def __init__(self, orientation):
+    Right = 0
+    Below = 1
+
+    def __init__(self, orientation, positioning=Below):
         super(EditableHeaderView, self).__init__(orientation)
+        if positioning not in (self.Right, self.Below):
+            raise ValueError("Unknown positioning: {}".format(self._positioning))
+
+        self._positioning = positioning
+
         self._editing_widget = None
         self._editing_index = -1
         self.setItemDelegate(HeaderDelegate(self))
@@ -146,7 +154,7 @@ class EditableHeaderView(QtWidgets.QHeaderView):
         self.setHighlightSections(True)
         self.setDefaultAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignTop)
 
-        if orientation == QtCore.Qt.Vertical:
+        if orientation == QtCore.Qt.Vertical and self._positioning == self.Below:
             self.setDefaultSectionSize(46)
 
     @property
@@ -216,29 +224,43 @@ class EditableHeaderView(QtWidgets.QHeaderView):
             QtCore.QRect: The geometry rect within the header without the widget
         """
         if self.orientation() == QtCore.Qt.Horizontal:
-            half_height = self.height() * 0.5
-            return QtCore.QRect(
-                self.sectionViewportPosition(logical_index),
-                0,
-                self.sectionSize(logical_index),
-                half_height,
-            )
+            if self._positioning == self.Below:
+                half_height = self.height() * 0.5
+                return QtCore.QRect(
+                    self.sectionViewportPosition(logical_index),
+                    0,
+                    self.sectionSize(logical_index),
+                    half_height,
+                )
+            elif self._positioning == self.Right:
+                half_width = self.sectionSize(logical_index) * 0.5
+                return QtCore.QRect(
+                    self.sectionViewportPosition(logical_index),
+                    0,
+                    half_width,
+                    self.height(),
+                )
+            else:
+                raise ValueError("Unknown positioning: {}".format(self._positioning))
         else:
-            # half_width = self.width() * 0.5
-            # return QtCore.QRect(
-            #     0,
-            #     self.sectionViewportPosition(logical_index) + self.MARGIN,
-            #     half_width,
-            #     self.sectionSize(logical_index) - self.MARGIN * 2,
-            # )
-
-            half_height = self.sectionSize(logical_index) * 0.5
-            return QtCore.QRect(
-                self.MARGIN,
-                self.sectionViewportPosition(logical_index),
-                self.width() - self.MARGIN * 2,
-                half_height,
-            )
+            if self._positioning == self.Below:
+                half_height = self.sectionSize(logical_index) * 0.5
+                return QtCore.QRect(
+                    self.MARGIN,
+                    self.sectionViewportPosition(logical_index),
+                    self.width() - self.MARGIN * 2,
+                    half_height,
+                )
+            elif self._positioning == self.Right:
+                half_width = self.width() * 0.5
+                return QtCore.QRect(
+                    0,
+                    self.sectionViewportPosition(logical_index) + self.MARGIN,
+                    half_width,
+                    self.sectionSize(logical_index) - self.MARGIN * 2,
+                )
+            else:
+                raise ValueError("Unknown positioning: {}".format(self._positioning))
 
     def get_widget_geometry(self, logical_index):
         """
@@ -249,29 +271,43 @@ class EditableHeaderView(QtWidgets.QHeaderView):
             QtCore.QRect: The geometry rect within the header for the widget
         """
         if self.orientation() == QtCore.Qt.Horizontal:
-            half_height = self.height() * 0.5
-            return QtCore.QRect(
-                self.sectionViewportPosition(logical_index) + self.MARGIN,
-                half_height,
-                self.sectionSize(logical_index) - self.MARGIN * 2,
-                half_height,
-            )
+            if self._positioning == self.Below:
+                half_height = self.height() * 0.5
+                return QtCore.QRect(
+                    self.sectionViewportPosition(logical_index) + self.MARGIN,
+                    half_height,
+                    self.sectionSize(logical_index) - self.MARGIN * 2,
+                    half_height,
+                )
+            elif self._positioning == self.Right:
+                half_width = self.sectionSize(logical_index) * 0.5
+                return QtCore.QRect(
+                    self.sectionViewportPosition(logical_index) + half_width,
+                    0,
+                    half_width,
+                    self.height(),
+                )
+            else:
+                raise ValueError("Unknown positioning: {}".format(self._positioning))
         else:
-            # half_width = self.width() * 0.5
-            # return QtCore.QRect(
-            #     half_width,
-            #     self.sectionViewportPosition(logical_index) + self.MARGIN,
-            #     half_width,
-            #     self.sectionSize(logical_index) - self.MARGIN * 2,
-            # )
-
-            half_height = self.sectionSize(logical_index) * 0.5
-            return QtCore.QRect(
-                self.MARGIN,
-                self.sectionViewportPosition(logical_index) + half_height,
-                self.width() - self.MARGIN * 2,
-                half_height,
-            )
+            if self._positioning == self.Below:
+                half_height = self.sectionSize(logical_index) * 0.5
+                return QtCore.QRect(
+                    self.MARGIN,
+                    self.sectionViewportPosition(logical_index) + half_height,
+                    self.width() - self.MARGIN * 2,
+                    half_height,
+                )
+            elif self._positioning == self.Right:
+                half_width = self.width() * 0.5
+                return QtCore.QRect(
+                    half_width,
+                    self.sectionViewportPosition(logical_index) + self.MARGIN,
+                    half_width,
+                    self.sectionSize(logical_index) - self.MARGIN * 2,
+                )
+            else:
+                raise ValueError("Unknown positioning: {}".format(self._positioning))
 
     def header_index(self, logical_index):
         # type: (int) -> HeaderIndex
@@ -416,17 +452,18 @@ class EditableHeaderView(QtWidgets.QHeaderView):
 
     def sizeHint(self):
         # type: () -> QtCore.QSize
-        size = QtCore.QSize(0, 0)
-        for i in range(self.count()):
-            hint = self.sectionSizeHint(i)
-            size = size.expandedTo(hint)
-        return size
+        size = super(EditableHeaderView, self).sizeHint()
+        if self._positioning == self.Right:
+            width = size.width() + 100
+            height = size.height()
+        elif self._positioning == self.Below:
+            width = size.width()
+            height = size.height() * 2
+        else:
+            raise ValueError("Unknown positioning: {}".format(self._positioning))
 
-    def sectionSizeHint(self, logical_index):
-        delegate = self.item_delegate_for_section(logical_index)
-        return delegate.sizeHint(
-            QtWidgets.QStyleOptionFrame(), self.header_index(logical_index)
-        )
+        size = QtCore.QSize(width, height)
+        return size
 
     def viewportEvent(self, event):
         # Update the geometry of any widget being edited if the viewport is resized
@@ -448,8 +485,8 @@ if __name__ == "__main__":
             # type: (QtWidgets.QWidget) -> None
             super(ExampleModel, self).__init__(parent)
             self._data = ["1", "2", "3"]
-            self._h_strings = ["", "", ""]
-            self._v_strings = ["", "", ""]
+            self._h_strings = ["", "ghi", ""]
+            self._v_strings = ["", "", "789"]
 
         def columnCount(self, parent=QtCore.QModelIndex()):
             # type: (QtCore.QModelIndex) -> int

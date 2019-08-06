@@ -713,16 +713,8 @@ class HeaderFilterProxy(QtCore.QSortFilterProxyModel):
             self.sourceModel().columnsRemoved.connect(self.on_columns_removed)
 
     def headerData(self, section, orientation, role=QtCore.Qt.DisplayRole):
-        if role == HeaderRole.EditableRole:
-            return section != 0
-        elif role == HeaderRole.EditRole:
+        if role == HeaderRole.EditRole:
             return self._filters[orientation][section]
-        elif role == HeaderRole.ChoicesRole:
-            return ["", "1", "2", "3"]
-        # elif role == HeaderRole.ChoicesRole:
-        #     return self._filters[orientation][section]
-        # elif role == HeaderRole.BackgroundColorRole:
-        #     return self._filters[orientation][section]
         return super(HeaderFilterProxy, self).headerData(section, orientation, role)
 
     def setHeaderData(self, section, orientation, value, role=QtCore.Qt.DisplayRole):
@@ -733,12 +725,6 @@ class HeaderFilterProxy(QtCore.QSortFilterProxyModel):
                 string_list[section] = value
                 self.headerDataChanged.emit(orientation, section, section)
                 return True
-        # elif role == HeaderRole.EditableRole:
-        #     pass
-        # elif role == HeaderRole.BackgroundColorRole:
-        #     pass
-        # elif role == HeaderRole.ChoicesRole:
-        #     pass
         return super(HeaderFilterProxy, self).setHeaderData(section, orientation, role)
 
     def filterAcceptsColumn(self, column, index):
@@ -815,6 +801,12 @@ if __name__ == "__main__":
             # type: (int, QtCore.Qt.Orientation, int) -> object
             if role == QtCore.Qt.DisplayRole:
                 return self.columns[section]
+            elif role == HeaderRole.EditableRole:
+                return section != 0
+            elif role == HeaderRole.ChoicesRole:
+                return ["", "1", "2", "3"]
+            elif role == HeaderRole.BackgroundColorRole and section != 0:
+                return QtGui.QColor("red")
 
         def index(self, row, column, parent=QtCore.QModelIndex()):
             # type: (int, int, QtCore.QModelIndex) -> QtCore.QModelIndex

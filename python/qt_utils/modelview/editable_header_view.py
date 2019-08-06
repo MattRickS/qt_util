@@ -113,7 +113,7 @@ class ComboHeaderDelegate(HeaderDelegate):
 
     def createEditor(self, parent, option, header_index):
         # type: (QtWidgets.QWidget, QtGui.QStyleOptionFrame, HeaderIndex) -> QtWidgets.QComboBox
-        choices = header_index.data(self._choices_role)
+        choices = header_index.data(self._choices_role) or []
         editor = QtWidgets.QComboBox(parent)
         editor.addItems(choices)
         editor.activated.connect(lambda: self.commitData.emit(editor))
@@ -259,7 +259,8 @@ class EditableHeaderView(QtWidgets.QHeaderView):
             self.updateSection(self._editing_index)
             self._editing_widget = None
             self._editing_index = -1
-            widget.setParent(None)
+            if widget is not None:
+                widget.setParent(None)
 
     def get_header_geometry(self, logical_index):
         """
@@ -679,6 +680,109 @@ class EditableHeaderView(QtWidgets.QHeaderView):
         return super(EditableHeaderView, self).viewportEvent(event)
 
 
+class HeaderFilterProxy(QtCore.QSortFilterProxyModel):
+    def __init__(self, parent=None):
+        super(HeaderFilterProxy, self).__init__(parent)
+        self._filters = {
+            QtCore.Qt.Horizontal: [],
+            QtCore.Qt.Vertical: [],
+        }
+
+        self.headerDataChanged.connect(self.on_header_data_changed)
+
+    def setSourceModel(self, model):
+        # Must connect source model's signals otherwise the proxy's filtering
+        # will modify the filters
+        curr_model = self.sourceModel()
+        if curr_model is not None:
+            curr_model.rowsRemoved.disconnect(self.on_rows_removed)
+            curr_model.rowsInserted.disconnect(self.on_rows_inserted)
+            curr_model.columnsInserted.disconnect(self.on_columns_inserted)
+            curr_model.columnsRemoved.disconnect(self.on_columns_removed)
+
+        super(HeaderFilterProxy, self).setSourceModel(model)
+        self._filters = {
+            QtCore.Qt.Horizontal: [""] * model.columnCount(),
+            QtCore.Qt.Vertical: [""] * model.rowCount(),
+        }
+        curr_model = self.sourceModel()
+        if curr_model is not None:
+            self.sourceModel().rowsRemoved.connect(self.on_rows_removed)
+            self.sourceModel().rowsInserted.connect(self.on_rows_inserted)
+            self.sourceModel().columnsInserted.connect(self.on_columns_inserted)
+            self.sourceModel().columnsRemoved.connect(self.on_columns_removed)
+
+    def headerData(self, section, orientation, role=QtCore.Qt.DisplayRole):
+        if role == HeaderRole.EditableRole:
+            return section != 0
+        elif role == HeaderRole.EditRole:
+            return self._filters[orientation][section]
+        elif role == HeaderRole.ChoicesRole:
+            return ["", "1", "2", "3"]
+        # elif role == HeaderRole.ChoicesRole:
+        #     return self._filters[orientation][section]
+        # elif role == HeaderRole.BackgroundColorRole:
+        #     return self._filters[orientation][section]
+        return super(HeaderFilterProxy, self).headerData(section, orientation, role)
+
+    def setHeaderData(self, section, orientation, value, role=QtCore.Qt.DisplayRole):
+        if role == HeaderRole.EditRole:
+            value = str(value)
+            string_list = self._filters[orientation]
+            if string_list[section] != value:
+                string_list[section] = value
+                self.headerDataChanged.emit(orientation, section, section)
+                return True
+        # elif role == HeaderRole.EditableRole:
+        #     pass
+        # elif role == HeaderRole.BackgroundColorRole:
+        #     pass
+        # elif role == HeaderRole.ChoicesRole:
+        #     pass
+        return super(HeaderFilterProxy, self).setHeaderData(section, orientation, role)
+
+    def filterAcceptsColumn(self, column, index):
+        source_model = self.sourceModel()
+        source_index = self.mapToSource(index)
+        for row, filter_text in enumerate(self._filters[QtCore.Qt.Vertical]):
+            if not filter_text:
+                continue
+            child_index = source_model.index(row, column, source_index)
+            cell_text = str(child_index.data(QtCore.Qt.DisplayRole))
+            if filter_text not in cell_text:
+                return False
+
+        return True
+
+    def filterAcceptsRow(self, row, index):
+        source_model = self.sourceModel()
+        source_index = self.mapToSource(index)
+        for column, filter_text in enumerate(self._filters[QtCore.Qt.Horizontal]):
+            if not filter_text:
+                continue
+            child_index = source_model.index(row, column, source_index)
+            cell_text = str(child_index.data(QtCore.Qt.DisplayRole))
+            if filter_text not in cell_text:
+                return False
+
+        return True
+
+    def on_header_data_changed(self, orientation, first, last):
+        self.invalidateFilter()
+
+    def on_columns_inserted(self, parent, first, last):
+        self._filters[QtCore.Qt.Vertical][first:first] = [""] * (1 + last - first)
+
+    def on_columns_removed(self, parent, first, last):
+        del self._filters[QtCore.Qt.Vertical][first:last + 1]
+
+    def on_rows_inserted(self, parent, first, last):
+        self._filters[QtCore.Qt.Horizontal][first:first] = [""] * (1 + last - first)
+
+    def on_rows_removed(self, parent, first, last):
+        del self._filters[QtCore.Qt.Horizontal][first:last + 1]
+
+
 if __name__ == "__main__":
     import sys
 
@@ -691,8 +795,6 @@ if __name__ == "__main__":
             # type: (QtWidgets.QWidget) -> None
             super(ExampleModel, self).__init__(parent)
             self._data = ["1", "2", "3"]
-            self._h_strings = ["abc", "ghi", ""]
-            self._v_strings = ["", "", "789"]
 
         def columnCount(self, parent=QtCore.QModelIndex()):
             # type: (QtCore.QModelIndex) -> int
@@ -713,17 +815,6 @@ if __name__ == "__main__":
             # type: (int, QtCore.Qt.Orientation, int) -> object
             if role == QtCore.Qt.DisplayRole:
                 return self.columns[section]
-            elif role == HeaderRole.BackgroundColorRole and section == 2:
-                return QtGui.QColor("red")
-            elif role == HeaderRole.EditableRole:
-                return section != 0
-            elif role == HeaderRole.EditRole:
-                if orientation == QtCore.Qt.Horizontal:
-                    return self._h_strings[section]
-                else:
-                    return self._v_strings[section]
-            elif role == HeaderRole.ChoicesRole:
-                return ["abc", "def", "ghi"]
 
         def index(self, row, column, parent=QtCore.QModelIndex()):
             # type: (int, int, QtCore.QModelIndex) -> QtCore.QModelIndex
@@ -737,24 +828,12 @@ if __name__ == "__main__":
             # type: (QtCore.QModelIndex) -> int
             return 3
 
-        def setHeaderData(self, section, orientation, value, role=QtCore.Qt.EditRole):
-            if role == HeaderRole.EditRole:
-                value = str(value)
-                string_list = (
-                    self._h_strings
-                    if orientation == QtCore.Qt.Horizontal
-                    else self._v_strings
-                )
-                if string_list[section] != value:
-                    string_list[section] = value
-                    self.headerDataChanged.emit(orientation, section, section)
-                    return True
-
-            return False
 
     model = ExampleModel()
+    proxy = HeaderFilterProxy()
+    proxy.setSourceModel(model)
     view = QtWidgets.QTableView()
-    view.setModel(model)
+    view.setModel(proxy)
 
     h_header = EditableHeaderView(QtCore.Qt.Horizontal)
     view.setHorizontalHeader(h_header)

@@ -1,3 +1,5 @@
+import contextlib
+
 from PySide2 import QtCore, QtGui, QtWidgets
 
 
@@ -202,6 +204,19 @@ class EditableHeaderView(QtWidgets.QHeaderView):
                 edited
         """
         return self._editing_index
+
+    def clear_section(self, logical_index):
+        if (
+            self.model().headerData(
+                logical_index, self.orientation(), HeaderRole.EditableRole
+            )
+            is False
+        ):
+            print("Section is not editable: {}".format(logical_index))
+            return
+        self.model().setHeaderData(
+            logical_index, self.orientation(), "", HeaderRole.EditRole
+        )
 
     def edit_section(self, logical_index, focus_reason=QtCore.Qt.MouseFocusReason):
         """
@@ -537,11 +552,32 @@ class EditableHeaderView(QtWidgets.QHeaderView):
         else:
             self.setItemDelegateForRow(section, delegate)
 
+    def widget_at(self, pos):
+        logical_index = self.logicalIndexAt(pos)
+        rect = self.get_widget_geometry(logical_index)
+        if rect.contains(pos):
+            return logical_index
+        return -1
+
     def on_close_editor(self):
         self.finish_editing(accept_changes=False)
 
     def on_commit_data(self):
         self.finish_editing()
+
+    @contextlib.contextmanager
+    def _blocked_clickable(self, pos):
+        # Prevent interaction with the widget region from triggering a
+        # section click, otherwise it will be sorted (if sorting is
+        # enabled). Note: setSortIndicator is not virtual so overriding
+        # it explicitly is not possible
+        clickable = self.sectionsClickable()
+        logical_index = self.widget_at(pos)
+        if logical_index != -1:
+            self.setSectionsClickable(False)
+        yield logical_index
+        if self.sectionsClickable() != clickable:
+            self.setSectionsClickable(clickable)
 
     def _connect_delegate(self, delegate):
         if delegate is None:
@@ -588,37 +624,17 @@ class EditableHeaderView(QtWidgets.QHeaderView):
             self.updateSection(i)
 
     def mousePressEvent(self, event):
-        clickable = self.sectionsClickable()
-        # Check if the release happens in the region of a widget and if so,
-        # display the widget
-        logical_index = self.logicalIndexAt(event.pos())
-        rect = self.get_widget_geometry(logical_index)
-        if rect.contains(event.pos()):
-            # Prevent interaction with the widget region from triggering a
-            # section click, otherwise it will be sorted (if sorting is
-            # enabled). Note: setSortIndicator is not virtual so overriding
-            # it explicitly is not possible
-            self.setSectionsClickable(False)
-        super(EditableHeaderView, self).mouseReleaseEvent(event)
-        if self.sectionsClickable() != clickable:
-            self.setSectionsClickable(clickable)
+        with self._blocked_clickable(event.pos()):
+            super(EditableHeaderView, self).mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
-        clickable = self.sectionsClickable()
-        # Check if the release happens in the region of a widget and if so,
-        # display the widget
-        logical_index = self.logicalIndexAt(event.pos())
-        rect = self.get_widget_geometry(logical_index)
-        if rect.contains(event.pos()):
-            self.edit_section(logical_index)
-            # Prevent interaction with the widget region from triggering a
-            # section click, otherwise it will be sorted (if sorting is
-            # enabled). Note: setSortIndicator is not virtual so overriding
-            # it explicitly is not possible
-            self.setSectionsClickable(False)
-        super(EditableHeaderView, self).mouseReleaseEvent(event)
-        if self.sectionsClickable() != clickable:
-            self.setSectionsClickable(clickable)
+        with self._blocked_clickable(event.pos()) as logical_index:
+            if logical_index != -1:
+                if event.button() == QtCore.Qt.LeftButton:
+                    self.edit_section(logical_index)
+                elif event.button() == QtCore.Qt.MiddleButton:
+                    self.clear_section(logical_index)
+            super(EditableHeaderView, self).mouseReleaseEvent(event)
 
     def paintSection(self, painter, rect, logical_index):
         # type: (QtGui.QPainter, QtCore.QRect, int) -> None
@@ -685,10 +701,7 @@ class EditableHeaderView(QtWidgets.QHeaderView):
 class HeaderFilterProxy(QtCore.QSortFilterProxyModel):
     def __init__(self, parent=None):
         super(HeaderFilterProxy, self).__init__(parent)
-        self._filters = {
-            QtCore.Qt.Horizontal: [],
-            QtCore.Qt.Vertical: [],
-        }
+        self._filters = {QtCore.Qt.Horizontal: [], QtCore.Qt.Vertical: []}
 
         self.headerDataChanged.connect(self.on_header_data_changed)
 
@@ -771,13 +784,13 @@ class HeaderFilterProxy(QtCore.QSortFilterProxyModel):
         self._filters[QtCore.Qt.Vertical][first:first] = [""] * (1 + last - first)
 
     def on_columns_removed(self, parent, first, last):
-        del self._filters[QtCore.Qt.Vertical][first:last + 1]
+        del self._filters[QtCore.Qt.Vertical][first : last + 1]
 
     def on_rows_inserted(self, parent, first, last):
         self._filters[QtCore.Qt.Horizontal][first:first] = [""] * (1 + last - first)
 
     def on_rows_removed(self, parent, first, last):
-        del self._filters[QtCore.Qt.Horizontal][first:last + 1]
+        del self._filters[QtCore.Qt.Horizontal][first : last + 1]
 
 
 if __name__ == "__main__":
@@ -834,7 +847,6 @@ if __name__ == "__main__":
         def rowCount(self, parent=QtCore.QModelIndex()):
             # type: (QtCore.QModelIndex) -> int
             return 3
-
 
     model = ExampleModel()
     proxy = HeaderFilterProxy()

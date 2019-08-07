@@ -29,6 +29,8 @@ class HeaderDelegate(QtWidgets.QStyledItemDelegate):
     def createEditor(self, parent, option, header_index):
         # type: (QtWidgets.QWidget, QtGui.QStyleOptionFrame, HeaderIndex) -> QtWidgets.QWidget
         editor = QtWidgets.QLineEdit(parent)
+        # TODO: Method for whether or not filters should be applied on
+        # textChanged instead of editingFinished
         editor.editingFinished.connect(lambda: self.commitData.emit(editor))
         return editor
 
@@ -730,11 +732,16 @@ class HeaderFilterProxy(QtCore.QSortFilterProxyModel):
     def filterAcceptsColumn(self, column, index):
         source_model = self.sourceModel()
         source_index = self.mapToSource(index)
+        # TODO: Method for setting how the matching works, eg, Contains, Starts
+        is_sensitive = self.filterCaseSensitivity() == QtCore.Qt.CaseSensitive
         for row, filter_text in enumerate(self._filters[QtCore.Qt.Vertical]):
             if not filter_text:
                 continue
             child_index = source_model.index(row, column, source_index)
             cell_text = str(child_index.data(QtCore.Qt.DisplayRole))
+            if is_sensitive:
+                cell_text = cell_text.lower()
+                filter_text = filter_text.lower()
             if filter_text not in cell_text:
                 return False
 
@@ -743,11 +750,15 @@ class HeaderFilterProxy(QtCore.QSortFilterProxyModel):
     def filterAcceptsRow(self, row, index):
         source_model = self.sourceModel()
         source_index = self.mapToSource(index)
+        is_sensitive = self.filterCaseSensitivity() == QtCore.Qt.CaseSensitive
         for column, filter_text in enumerate(self._filters[QtCore.Qt.Horizontal]):
             if not filter_text:
                 continue
             child_index = source_model.index(row, column, source_index)
             cell_text = str(child_index.data(QtCore.Qt.DisplayRole))
+            if is_sensitive:
+                cell_text = cell_text.lower()
+                filter_text = filter_text.lower()
             if filter_text not in cell_text:
                 return False
 
@@ -780,7 +791,11 @@ if __name__ == "__main__":
         def __init__(self, parent=None):
             # type: (QtWidgets.QWidget) -> None
             super(ExampleModel, self).__init__(parent)
-            self._data = ["1", "2", "3"]
+            self._data = [
+                ["1", "2", "3"],
+                ["abc", "def", "ghi"],
+                ["ONE", "TWO", "THREE"],
+            ]
 
         def columnCount(self, parent=QtCore.QModelIndex()):
             # type: (QtCore.QModelIndex) -> int
@@ -791,7 +806,7 @@ if __name__ == "__main__":
             if not index.isValid():
                 return
             if role == QtCore.Qt.DisplayRole:
-                return self._data[index.column()]
+                return self._data[index.row()][index.column()]
 
         def flags(self, index):
             # type: (QtCore.QModelIndex) -> QtCore.Qt.ItemFlags

@@ -615,8 +615,7 @@ class EditableHeaderView(QtWidgets.QHeaderView):
                     (self._editing_index - 1) % self.count(),
                     focus_reason=QtCore.Qt.BacktabFocusReason,
                 )
-            return True
-        return super(EditableHeaderView, self).focusNextPrevChild(is_next)
+        return True
 
     def headerDataChanged(self, orientation, first, last):
         # type: (QtCore.Qt.Orientation, int, int) -> None
@@ -857,7 +856,7 @@ if __name__ == "__main__":
     h_header = EditableHeaderView(QtCore.Qt.Horizontal)
     view.setHorizontalHeader(h_header)
 
-    v_header = EditableHeaderView(QtCore.Qt.Vertical)
+    v_header = EditableHeaderView(QtCore.Qt.Vertical, positioning=EditableHeaderView.Right)
     view.setVerticalHeader(v_header)
 
     combo_delegate = ComboHeaderDelegate(view)

@@ -601,20 +601,32 @@ class EditableHeaderView(QtWidgets.QHeaderView):
         self.finish_editing()
 
     def focusNextPrevChild(self, is_next):
-        # TODO: Focus is still behaving oddly for the view - it appears actual
-        # ModelIndexes are being tabbed through as well, which can negatively
-        # affect the viewport position
         if self._editing_index >= 0:
             if is_next:
-                self.edit_section(
-                    (self._editing_index + 1) % self.count(),
-                    focus_reason=QtCore.Qt.TabFocusReason,
-                )
+                offset = 1
+                focus_reason = QtCore.Qt.TabFocusReason
             else:
-                self.edit_section(
-                    (self._editing_index - 1) % self.count(),
-                    focus_reason=QtCore.Qt.BacktabFocusReason,
-                )
+                offset = -1
+                focus_reason = QtCore.Qt.BacktabFocusReason
+
+            # Walk through the sections until the next editable section is found
+            section = self._editing_index
+            while True:
+                section = (section + offset) % self.count()
+                # If cycled back around to the same index, do nothing
+                if section == self._editing_index:
+                    self.finish_editing()
+                    return False
+
+                if (
+                    self.model().headerData(
+                        section, self.orientation(), HeaderRole.EditableRole
+                    )
+                    is not False
+                ):
+                    break
+
+            self.edit_section(section, focus_reason=focus_reason)
         return True
 
     def headerDataChanged(self, orientation, first, last):
@@ -856,7 +868,9 @@ if __name__ == "__main__":
     h_header = EditableHeaderView(QtCore.Qt.Horizontal)
     view.setHorizontalHeader(h_header)
 
-    v_header = EditableHeaderView(QtCore.Qt.Vertical, positioning=EditableHeaderView.Right)
+    v_header = EditableHeaderView(
+        QtCore.Qt.Vertical, positioning=EditableHeaderView.Right
+    )
     view.setVerticalHeader(v_header)
 
     combo_delegate = ComboHeaderDelegate(view)

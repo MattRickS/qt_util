@@ -128,18 +128,20 @@ class Menu(QtWidgets.QListWidget):
 
 
 class ComboHeaderDelegate(HeaderDelegate):
-    def __init__(
-        self, parent=None, choices_role=HeaderRole.ChoicesRole, max_row_height=8
-    ):
+    def __init__(self, parent, choices_role=HeaderRole.ChoicesRole, max_row_height=8):
         super(ComboHeaderDelegate, self).__init__(parent)
         self._choices_role = choices_role
         self._max_row_height = max_row_height
 
     def _move_focus(self, header_index, is_next):
+        parent = self.parent()
+        if parent is None or not isinstance(parent, QtWidgets.QAbstractItemView):
+            return
+
         if header_index.orientation == QtCore.Qt.Horizontal:
-            header = self.parent().horizontalHeader()
+            header = parent.horizontalHeader()
         else:
-            header = self.parent().verticalHeader()
+            header = parent.verticalHeader()
         header.focusNextPrevChild(is_next)
 
     def createEditor(self, parent, option, header_index):

@@ -31,6 +31,7 @@ class HeaderDelegate(QtWidgets.QStyledItemDelegate):
     def createEditor(self, parent, option, header_index):
         # type: (QtWidgets.QWidget, QtGui.QStyleOptionFrame, HeaderIndex) -> QtWidgets.QWidget
         editor = QtWidgets.QLineEdit(parent)
+        editor.setGeometry(option.rect)
         # TODO: Method for whether or not filters should be applied on
         # textChanged instead of editingFinished
         editor.editingFinished.connect(lambda: self.commitData.emit(editor))
@@ -109,62 +110,116 @@ class HeaderDelegate(QtWidgets.QStyledItemDelegate):
         editor.setGeometry(option.rect)
 
 
+class Menu(QtWidgets.QListWidget):
+    focusLost = QtCore.Signal()
+    focusTabbed = QtCore.Signal(bool)
+
+    def __init__(self, parent, max_row_height):
+        super(Menu, self).__init__(parent)
+        self._max_row_height = max_row_height
+
+    def focusOutEvent(self, event):
+        super(Menu, self).focusOutEvent(event)
+        self.focusLost.emit()
+
+    def focusNextPrevChild(self, is_next):
+        self.focusTabbed.emit(is_next)
+        return False
+
+
 class ComboHeaderDelegate(HeaderDelegate):
-    def __init__(self, parent=None, choices_role=HeaderRole.ChoicesRole):
+    def __init__(
+        self, parent=None, choices_role=HeaderRole.ChoicesRole, max_row_height=8
+    ):
         super(ComboHeaderDelegate, self).__init__(parent)
-        self._dummy = QtWidgets.QComboBox()
         self._choices_role = choices_role
+        self._max_row_height = max_row_height
+
+    def _move_focus(self, header_index, is_next):
+        if header_index.orientation == QtCore.Qt.Horizontal:
+            header = self.parent().horizontalHeader()
+        else:
+            header = self.parent().verticalHeader()
+        header.focusNextPrevChild(is_next)
 
     def createEditor(self, parent, option, header_index):
         # type: (QtWidgets.QWidget, QtGui.QStyleOptionFrame, HeaderIndex) -> QtWidgets.QComboBox
         choices = header_index.data(self._choices_role) or []
-        editor = QtWidgets.QComboBox(parent)
+        editor = Menu(parent, self._max_row_height)
+        editor.setWindowFlags(QtCore.Qt.Window | QtCore.Qt.FramelessWindowHint)
+        editor.setFixedWidth(option.rect.width())
         editor.addItems(choices)
-        editor.activated.connect(lambda: self.commitData.emit(editor))
+
+        # Position it over the header widget
+        bl = parent.mapToGlobal(option.rect.topLeft())
+        editor.move(bl)
+
+        # Ensure the view only displays the available items
+        editor.setVerticalScrollMode(QtWidgets.QAbstractItemView.ScrollPerPixel)
+        margins = editor.contentsMargins()
+        editor.setMaximumHeight(
+            (min(self._max_row_height, editor.count())) * editor.sizeHintForRow(0)
+            + margins.top()
+            + margins.bottom()
+        )
+
+        editor.show()
+        editor.focusTabbed.connect(lambda x: self._move_focus(header_index, x))
+        editor.focusLost.connect(lambda: self.closeEditor.emit(editor))
+        editor.itemClicked.connect(lambda: self.commitData.emit(editor))
+
         return editor
 
     def setEditorData(self, editor, header_index):
-        # type: (QtWidgets.QComboBox, HeaderIndex) -> None
-        current = header_index.data()
-        editor.setCurrentText(current)
-        editor.showPopup()
+        # type: (Menu, HeaderIndex) -> None
+        value = header_index.data()
+        if value is None:
+            return
+
+        items = editor.findItems(value, QtCore.Qt.MatchExactly)
+        if len(items) != 1:
+            return
+        editor.setItemSelected(items[0], True)
 
     def setModelData(self, editor, model, header_index):
         # type: (QtWidgets.QComboBox, QtCore.QAbstractItemModel, HeaderIndex) -> None
-        value = editor.currentText()
+        selected_items = editor.selectedItems()
+        if len(selected_items) != 1:
+            return
+        value = selected_items[0].text()
         model.setHeaderData(
             header_index.section, header_index.orientation, value, HeaderRole.EditRole
         )
 
     def paint(self, painter, option, header_index):
-        # type: (QtGui.QPainterPath, QtGui.QStyleOptionFrame, HeaderIndex) -> None
-        painter.save()
+        # type: (QtGui.QPainter, QtGui.QStyleOptionFrame, HeaderIndex) -> None
+        super(ComboHeaderDelegate, self).paint(painter, option, header_index)
 
-        style = QtWidgets.QApplication.style()
-        opt = QtWidgets.QStyleOptionComboBox()
-        opt.initFrom(self._dummy)
+        painter.save()
 
         is_enabled = (
             bool(option.state & QtWidgets.QStyle.State_Enabled)
             and header_index.data(HeaderRole.EditableRole) is not False
         )
-        if is_enabled:
-            opt.state |= QtWidgets.QStyle.State_Enabled
-        else:
-            opt.state &= ~QtWidgets.QStyle.State_Enabled
+        role = QtGui.QPalette.Active if is_enabled else QtGui.QPalette.Inactive
+        arrow_brush = option.palette.brush(role, QtGui.QPalette.Text)
+        painter.setBrush(arrow_brush)
 
-        painter.setPen(
-            self._dummy.palette().color(
-                QtGui.QPalette.Text if is_enabled else QtGui.QPalette.Shadow
-            )
-        )
-
+        style = QtWidgets.QApplication.style()
+        opt = QtWidgets.QStyleOptionComboBox()
         opt.rect = option.rect
-        opt.currentText = header_index.data()
-        style.drawComplexControl(
-            QtWidgets.QStyle.CC_ComboBox, opt, painter, self._dummy
+        ar = style.proxy().subControlRect(
+            QtWidgets.QStyle.CC_ComboBox, opt, QtWidgets.QStyle.SC_ComboBoxArrow
         )
-        style.drawControl(QtWidgets.QStyle.CE_ComboBoxLabel, opt, painter)
+        center = ar.center()
+        painter.setRenderHint(QtGui.QPainter.HighQualityAntialiasing)
+        painter.drawPolygon(
+            [
+                center - QtCore.QPoint(4, 2),
+                center + QtCore.QPoint(4, -2),
+                center + QtCore.QPoint(0, 2),
+            ]
+        )
 
         painter.restore()
 
@@ -251,8 +306,6 @@ class EditableHeaderView(QtWidgets.QHeaderView):
         # TODO: At the moment nothing knows when to close the delegate unless
         # the delegate itself specifies it. Ideally there should be an event
         # filter of some sort for deducing when an editor can be closed
-
-        self._editing_widget.setGeometry(widget_rect)
 
         delegate.setEditorData(self._editing_widget, header_index)
         self._editing_widget.show()

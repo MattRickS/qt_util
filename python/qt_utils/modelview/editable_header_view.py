@@ -804,6 +804,39 @@ class HeaderFilterProxy(QtCore.QSortFilterProxyModel):
         del self._filters[QtCore.Qt.Horizontal][first : last + 1]
 
 
+class TableFilterView(QtWidgets.QTableView):
+    def __init__(self, parent=None, model=None, horizontal=True, vertical=False):
+        super(TableFilterView, self).__init__(parent)
+        self._proxy = HeaderFilterProxy()
+        self.setModel(self._proxy)
+
+        if horizontal:
+            h_header = EditableHeaderView(QtCore.Qt.Horizontal)
+            self.setHorizontalHeader(h_header)
+
+        if vertical:
+            v_header = EditableHeaderView(QtCore.Qt.Vertical)
+            self.setVerticalHeader(v_header)
+
+        if model is not None:
+            self.set_source_model(model)
+
+    def set_horizontal_delegate(self, delegate):
+        self.horizontalHeader().setItemDelegate(delegate)
+
+    def set_vertical_delegate(self, delegate):
+        self.verticalHeader().setItemDelegate(delegate)
+
+    def set_horizontal_secton_delegate(self, section, delegate):
+        self.horizontalHeader().set_item_delegate_for_section(section, delegate)
+
+    def set_vertical_section_delegate(self, section, delegate):
+        self.verticalHeader().set_item_delegate_for_section(section, delegate)
+
+    def set_source_model(self, model):
+        self._proxy.setSourceModel(model)
+
+
 if __name__ == "__main__":
     import sys
 
@@ -860,30 +893,16 @@ if __name__ == "__main__":
             return 3
 
     model = ExampleModel()
-    proxy = HeaderFilterProxy()
-    proxy.setSourceModel(model)
-    view = QtWidgets.QTableView()
-    view.setModel(proxy)
-
-    h_header = EditableHeaderView(QtCore.Qt.Horizontal)
-    view.setHorizontalHeader(h_header)
-
-    v_header = EditableHeaderView(
-        QtCore.Qt.Vertical, positioning=EditableHeaderView.Right
-    )
-    view.setVerticalHeader(v_header)
-
-    combo_delegate = ComboHeaderDelegate(view)
-    h_header.set_item_delegate_for_section(1, combo_delegate)
-    v_header.set_item_delegate_for_section(0, combo_delegate)
-    v_header.set_item_delegate_for_section(2, combo_delegate)
-
-    view.show()
 
     def debug(*args, **kwargs):
         print(args, kwargs)
 
     model.headerDataChanged.connect(debug)
+
+    view = TableFilterView(model=model)
+    combo_delegate = ComboHeaderDelegate(view)
+    view.set_horizontal_secton_delegate(1, combo_delegate)
+    view.show()
 
     app.exec_()
     sys.exit()

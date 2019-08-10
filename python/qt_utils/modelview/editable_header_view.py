@@ -116,6 +116,8 @@ class Menu(QtWidgets.QListWidget):
 
     def __init__(self, parent, max_row_height):
         super(Menu, self).__init__(parent)
+        self.setVerticalScrollMode(QtWidgets.QAbstractItemView.ScrollPerPixel)
+        self.setWindowFlags(QtCore.Qt.Window | QtCore.Qt.FramelessWindowHint)
         self._max_row_height = max_row_height
 
     def focusOutEvent(self, event):
@@ -148,7 +150,6 @@ class ComboHeaderDelegate(HeaderDelegate):
         # type: (QtWidgets.QWidget, QtGui.QStyleOptionFrame, HeaderIndex) -> QtWidgets.QComboBox
         choices = header_index.data(self._choices_role) or []
         editor = Menu(parent, self._max_row_height)
-        editor.setWindowFlags(QtCore.Qt.Window | QtCore.Qt.FramelessWindowHint)
         editor.setFixedWidth(option.rect.width())
         editor.addItems(choices)
 
@@ -157,15 +158,14 @@ class ComboHeaderDelegate(HeaderDelegate):
         editor.move(bl)
 
         # Ensure the view only displays the available items
-        editor.setVerticalScrollMode(QtWidgets.QAbstractItemView.ScrollPerPixel)
         margins = editor.contentsMargins()
         editor.setMaximumHeight(
             (min(self._max_row_height, editor.count())) * editor.sizeHintForRow(0)
             + margins.top()
             + margins.bottom()
         )
-
         editor.show()
+
         editor.focusTabbed.connect(lambda x: self._move_focus(header_index, x))
         editor.focusLost.connect(lambda: self.closeEditor.emit(editor))
         editor.itemClicked.connect(lambda: self.commitData.emit(editor))
@@ -890,6 +890,9 @@ class TableFilterView(QtWidgets.QTableView):
 
     def set_source_model(self, model):
         self._proxy.setSourceModel(model)
+
+    def source_model(self):
+        return self._proxy.sourceModel()
 
 
 if __name__ == "__main__":

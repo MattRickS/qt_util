@@ -155,15 +155,21 @@ class ComboHeaderDelegate(HeaderDelegate):
         editor.addItems(choices)
 
         # Position it over the header widget
-        bl = parent.mapToGlobal(option.rect.topLeft())
-        editor.move(bl)
+        pos = option.rect.topLeft()
+        global_pos = parent.mapToGlobal(pos)
+        editor.move(global_pos)
 
-        # Ensure the view only displays the available items
+        # Ensure the dropdown only displays the available items
+        rect = self.parent().rect()
+        remaining_height = rect.height() - pos.y()
         margins = editor.contentsMargins()
         editor.setMaximumHeight(
-            (min(self._max_row_height, editor.count())) * editor.sizeHintForRow(0)
-            + margins.top()
-            + margins.bottom()
+            min(
+                remaining_height,
+                (min(self._max_row_height, editor.count())) * editor.sizeHintForRow(0)
+                + margins.top()
+                + margins.bottom()
+            )
         )
         editor.show()
 

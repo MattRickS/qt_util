@@ -9,6 +9,7 @@ class HeaderRole(object):
     EditableRole = QtCore.Qt.UserRole + 102
     ChoicesRole = QtCore.Qt.UserRole + 103
     FilterTypeRole = QtCore.Qt.UserRole + 104
+    CaseSensitivityRole = QtCore.Qt.UserRole + 105
 
 
 class HeaderIndex(object):
@@ -830,8 +831,8 @@ class HeaderFilterProxy(QtCore.QSortFilterProxyModel):
                 return True
         return super(HeaderFilterProxy, self).setHeaderData(section, orientation, role)
 
-    def _matches_filter(self, cell_text, filter_string, filter_type):
-        if self.filterCaseSensitivity() == QtCore.Qt.CaseInsensitive:
+    def _matches_filter(self, cell_text, filter_string, filter_type, case_sensitivity):
+        if case_sensitivity == QtCore.Qt.CaseInsensitive:
             cell_text = cell_text.lower()
             filter_string = filter_string.lower()
 
@@ -856,7 +857,10 @@ class HeaderFilterProxy(QtCore.QSortFilterProxyModel):
             )
             child_index = source_model.index(row, column, source_index)
             cell_text = str(child_index.data(QtCore.Qt.DisplayRole))
-            if not self._matches_filter(cell_text, filter_text, filter_type):
+            case_sensitivity = self.headerData(row, QtCore.Qt.Vertical, HeaderRole.CaseSensitivityRole)
+            if case_sensitivity is None:
+                case_sensitivity = self.filterCaseSensitivity()
+            if not self._matches_filter(cell_text, filter_text, filter_type, case_sensitivity):
                 return False
 
         return True
@@ -873,7 +877,10 @@ class HeaderFilterProxy(QtCore.QSortFilterProxyModel):
             )
             child_index = source_model.index(row, column, source_index)
             cell_text = str(child_index.data(QtCore.Qt.DisplayRole))
-            if not self._matches_filter(cell_text, filter_text, filter_type):
+            case_sensitivity = self.headerData(column, QtCore.Qt.Horizontal, HeaderRole.CaseSensitivityRole)
+            if case_sensitivity is None:
+                case_sensitivity = self.filterCaseSensitivity()
+            if not self._matches_filter(cell_text, filter_text, filter_type, case_sensitivity):
                 return False
 
         return True
@@ -956,6 +963,8 @@ if __name__ == "__main__":
             self._data = [
                 ["1", "2", "3"],
                 ["abc", "def", "ghi"],
+                ["def", "ghi", "abc"],
+                ["ghi", "abc", "def"],
                 ["ONE", "TWO", "THREE"],
             ]
 
@@ -976,6 +985,8 @@ if __name__ == "__main__":
 
         def headerData(self, section, orientation, role=QtCore.Qt.DisplayRole):
             # type: (int, QtCore.Qt.Orientation, int) -> object
+            if orientation == QtCore.Qt.Vertical:
+                return
             if role == QtCore.Qt.DisplayRole:
                 return self.columns[section]
             # elif role == HeaderRole.EditableRole:
@@ -991,6 +1002,13 @@ if __name__ == "__main__":
                     return HeaderFilterProxy.MatchContains
                 elif section == 2:
                     return HeaderFilterProxy.MatchStarts
+            elif role == HeaderRole.CaseSensitivityRole:
+                if section == 0:
+                    return QtCore.Qt.CaseInsensitive
+                elif section == 1:
+                    return QtCore.Qt.CaseInsensitive
+                elif section == 2:
+                    return QtCore.Qt.CaseSensitive
 
         def index(self, row, column, parent=QtCore.QModelIndex()):
             # type: (int, int, QtCore.QModelIndex) -> QtCore.QModelIndex
@@ -1002,7 +1020,7 @@ if __name__ == "__main__":
 
         def rowCount(self, parent=QtCore.QModelIndex()):
             # type: (QtCore.QModelIndex) -> int
-            return 3
+            return len(self._data)
 
     model = ExampleModel()
 
@@ -1013,7 +1031,7 @@ if __name__ == "__main__":
 
     view = TableFilterView(model=model)
     combo_delegate = ComboHeaderDelegate(view)
-    view.set_horizontal_secton_delegate(1, combo_delegate)
+    # view.set_horizontal_secton_delegate(1, combo_delegate)
     view.show()
     view.set_filter_case_sensitivity(QtCore.Qt.CaseInsensitive)
 

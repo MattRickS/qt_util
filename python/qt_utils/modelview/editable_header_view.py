@@ -765,11 +765,26 @@ class EditableHeaderView(QtWidgets.QHeaderView):
 
 
 class HeaderFilterProxy(QtCore.QSortFilterProxyModel):
+    MatchExactly = 0
+    MatchContains = 1
+    MatchStarts = 2
+
     def __init__(self, parent=None):
         super(HeaderFilterProxy, self).__init__(parent)
         self._filters = {QtCore.Qt.Horizontal: [], QtCore.Qt.Vertical: []}
+        self._filter_type = self.MatchContains
 
         self.headerDataChanged.connect(self.on_header_data_changed)
+
+    @property
+    def filter_type(self):
+        return self._filter_type
+
+    @filter_type.setter
+    def filter_type(self, value):
+        if value not in (self.MatchStarts, self.MatchContains, self.MatchExactly):
+            raise ValueError("Unknown filter type: {}".format(value))
+        self._filter_type = value
 
     def setSourceModel(self, model):
         # Must connect source model's signals otherwise the proxy's filtering
@@ -808,20 +823,29 @@ class HeaderFilterProxy(QtCore.QSortFilterProxyModel):
                 return True
         return super(HeaderFilterProxy, self).setHeaderData(section, orientation, role)
 
+    def _matches_filter(self, cell_text, filter_string):
+        if self.filterCaseSensitivity() == QtCore.Qt.CaseInsensitive:
+            cell_text = cell_text.lower()
+            filter_string = filter_string.lower()
+
+        if self._filter_type == self.MatchExactly:
+            return filter_string == cell_text
+        elif self._filter_type == self.MatchContains:
+            return filter_string in cell_text
+        elif self._filter_type == self.MatchStarts:
+            return cell_text.startswith(filter_string)
+        else:
+            raise ValueError("Unknown filter type: {}".format(self._filter_type))
+
     def filterAcceptsColumn(self, column, index):
         source_model = self.sourceModel()
         source_index = self.mapToSource(index)
-        # TODO: Method for setting how the matching works, eg, Contains, Starts
-        is_sensitive = self.filterCaseSensitivity() == QtCore.Qt.CaseSensitive
         for row, filter_text in enumerate(self._filters[QtCore.Qt.Vertical]):
             if not filter_text:
                 continue
             child_index = source_model.index(row, column, source_index)
             cell_text = str(child_index.data(QtCore.Qt.DisplayRole))
-            if is_sensitive:
-                cell_text = cell_text.lower()
-                filter_text = filter_text.lower()
-            if filter_text not in cell_text:
+            if not self._matches_filter(cell_text, filter_text):
                 return False
 
         return True
@@ -829,16 +853,12 @@ class HeaderFilterProxy(QtCore.QSortFilterProxyModel):
     def filterAcceptsRow(self, row, index):
         source_model = self.sourceModel()
         source_index = self.mapToSource(index)
-        is_sensitive = self.filterCaseSensitivity() == QtCore.Qt.CaseSensitive
         for column, filter_text in enumerate(self._filters[QtCore.Qt.Horizontal]):
             if not filter_text:
                 continue
             child_index = source_model.index(row, column, source_index)
             cell_text = str(child_index.data(QtCore.Qt.DisplayRole))
-            if is_sensitive:
-                cell_text = cell_text.lower()
-                filter_text = filter_text.lower()
-            if filter_text not in cell_text:
+            if not self._matches_filter(cell_text, filter_text):
                 return False
 
         return True
@@ -875,6 +895,18 @@ class TableFilterView(QtWidgets.QTableView):
 
         if model is not None:
             self.set_source_model(model)
+
+    def filter_case_sensitivity(self):
+        return self._proxy.filterCaseSensitivity()
+
+    def filter_type(self):
+        return self._proxy.filter_type
+
+    def set_filter_case_sensitivity(self, sensitivity):
+        self._proxy.setFilterCaseSensitivity(sensitivity)
+
+    def set_filter_type(self, filter_type):
+        self._proxy.filter_type = filter_type
 
     def set_horizontal_delegate(self, delegate):
         self.horizontalHeader().setItemDelegate(delegate)
@@ -961,6 +993,7 @@ if __name__ == "__main__":
     combo_delegate = ComboHeaderDelegate(view)
     view.set_horizontal_secton_delegate(1, combo_delegate)
     view.show()
+    view.set_filter_case_sensitivity(QtCore.Qt.CaseInsensitive)
 
     app.exec_()
     sys.exit()

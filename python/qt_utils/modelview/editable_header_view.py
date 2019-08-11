@@ -8,6 +8,7 @@ class HeaderRole(object):
     BackgroundColorRole = QtCore.Qt.UserRole + 101
     EditableRole = QtCore.Qt.UserRole + 102
     ChoicesRole = QtCore.Qt.UserRole + 103
+    FilterTypeRole = QtCore.Qt.UserRole + 104
 
 
 class HeaderIndex(object):
@@ -765,26 +766,26 @@ class EditableHeaderView(QtWidgets.QHeaderView):
 
 
 class HeaderFilterProxy(QtCore.QSortFilterProxyModel):
-    MatchExactly = 0
-    MatchContains = 1
-    MatchStarts = 2
+    MatchExactly = 1
+    MatchContains = 2
+    MatchStarts = 3
 
     def __init__(self, parent=None):
         super(HeaderFilterProxy, self).__init__(parent)
         self._filters = {QtCore.Qt.Horizontal: [], QtCore.Qt.Vertical: []}
-        self._filter_type = self.MatchContains
+        self._default_filter_type = self.MatchContains
 
         self.headerDataChanged.connect(self.on_header_data_changed)
 
     @property
-    def filter_type(self):
-        return self._filter_type
+    def default_filter_type(self):
+        return self._default_filter_type
 
-    @filter_type.setter
-    def filter_type(self, value):
+    @default_filter_type.setter
+    def default_filter_type(self, value):
         if value not in (self.MatchStarts, self.MatchContains, self.MatchExactly):
             raise ValueError("Unknown filter type: {}".format(value))
-        self._filter_type = value
+        self._default_filter_type = value
 
     def setSourceModel(self, model):
         # Must connect source model's signals otherwise the proxy's filtering
@@ -823,19 +824,19 @@ class HeaderFilterProxy(QtCore.QSortFilterProxyModel):
                 return True
         return super(HeaderFilterProxy, self).setHeaderData(section, orientation, role)
 
-    def _matches_filter(self, cell_text, filter_string):
+    def _matches_filter(self, cell_text, filter_string, filter_type):
         if self.filterCaseSensitivity() == QtCore.Qt.CaseInsensitive:
             cell_text = cell_text.lower()
             filter_string = filter_string.lower()
 
-        if self._filter_type == self.MatchExactly:
+        if filter_type == self.MatchExactly:
             return filter_string == cell_text
-        elif self._filter_type == self.MatchContains:
+        elif filter_type == self.MatchContains:
             return filter_string in cell_text
-        elif self._filter_type == self.MatchStarts:
+        elif filter_type == self.MatchStarts:
             return cell_text.startswith(filter_string)
         else:
-            raise ValueError("Unknown filter type: {}".format(self._filter_type))
+            raise ValueError("Unknown filter type: {}".format(filter_type))
 
     def filterAcceptsColumn(self, column, index):
         source_model = self.sourceModel()
@@ -843,9 +844,13 @@ class HeaderFilterProxy(QtCore.QSortFilterProxyModel):
         for row, filter_text in enumerate(self._filters[QtCore.Qt.Vertical]):
             if not filter_text:
                 continue
+            filter_type = (
+                self.headerData(row, QtCore.Qt.Vertical, HeaderRole.FilterTypeRole)
+                or self._default_filter_type
+            )
             child_index = source_model.index(row, column, source_index)
             cell_text = str(child_index.data(QtCore.Qt.DisplayRole))
-            if not self._matches_filter(cell_text, filter_text):
+            if not self._matches_filter(cell_text, filter_text, filter_type):
                 return False
 
         return True
@@ -856,9 +861,13 @@ class HeaderFilterProxy(QtCore.QSortFilterProxyModel):
         for column, filter_text in enumerate(self._filters[QtCore.Qt.Horizontal]):
             if not filter_text:
                 continue
+            filter_type = (
+                self.headerData(column, QtCore.Qt.Horizontal, HeaderRole.FilterTypeRole)
+                or self._default_filter_type
+            )
             child_index = source_model.index(row, column, source_index)
             cell_text = str(child_index.data(QtCore.Qt.DisplayRole))
-            if not self._matches_filter(cell_text, filter_text):
+            if not self._matches_filter(cell_text, filter_text, filter_type):
                 return False
 
         return True
@@ -896,17 +905,17 @@ class TableFilterView(QtWidgets.QTableView):
         if model is not None:
             self.set_source_model(model)
 
+    def default_filter_type(self):
+        return self._proxy.default_filter_type
+
     def filter_case_sensitivity(self):
         return self._proxy.filterCaseSensitivity()
 
-    def filter_type(self):
-        return self._proxy.filter_type
+    def set_default_filter_type(self, filter_type):
+        self._proxy.default_filter_type = filter_type
 
     def set_filter_case_sensitivity(self, sensitivity):
         self._proxy.setFilterCaseSensitivity(sensitivity)
-
-    def set_filter_type(self, filter_type):
-        self._proxy.filter_type = filter_type
 
     def set_horizontal_delegate(self, delegate):
         self.horizontalHeader().setItemDelegate(delegate)
@@ -963,12 +972,19 @@ if __name__ == "__main__":
             # type: (int, QtCore.Qt.Orientation, int) -> object
             if role == QtCore.Qt.DisplayRole:
                 return self.columns[section]
-            elif role == HeaderRole.EditableRole:
-                return section != 0
+            # elif role == HeaderRole.EditableRole:
+            #     return section != 0
             elif role == HeaderRole.ChoicesRole:
-                return ["", "1", "2", "3"]
+                return ["", "1", "2", "3", "b", "e", "h"]
             elif role == HeaderRole.BackgroundColorRole and section != 0:
                 return QtGui.QColor("red")
+            elif role == HeaderRole.FilterTypeRole:
+                if section == 0:
+                    return HeaderFilterProxy.MatchExactly
+                elif section == 1:
+                    return HeaderFilterProxy.MatchContains
+                elif section == 2:
+                    return HeaderFilterProxy.MatchStarts
 
         def index(self, row, column, parent=QtCore.QModelIndex()):
             # type: (int, int, QtCore.QModelIndex) -> QtCore.QModelIndex

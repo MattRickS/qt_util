@@ -781,6 +781,7 @@ class HeaderFilterProxy(QtCore.QSortFilterProxyModel):
         super(HeaderFilterProxy, self).__init__(parent)
         self._filters = {QtCore.Qt.Horizontal: [], QtCore.Qt.Vertical: []}
         self._default_filter_type = self.MatchContains
+        self._internal_cache_enabled = True
 
         self.headerDataChanged.connect(self.on_header_data_changed)
 
@@ -794,6 +795,25 @@ class HeaderFilterProxy(QtCore.QSortFilterProxyModel):
             raise ValueError("Unknown filter type: {}".format(value))
         self._default_filter_type = value
 
+    def is_internal_cache_enabled(self):
+        return self._internal_cache_enabled
+
+    def set_internal_cache_enabled(self, enabled):
+        self._internal_cache_enabled = bool(enabled)
+        model = self.sourceModel()
+        self._filters = {
+            QtCore.Qt.Horizontal: [""] * model.columnCount(),
+            QtCore.Qt.Vertical: [""] * model.rowCount(),
+        }
+        if enabled:
+            model.headerDataChanged.disconnect(self.on_header_data_changed)
+            self.headerDataChanged.connect(self.on_header_data_changed)
+        else:
+            self.headerDataChanged.disconnect(self.on_header_data_changed)
+            model.headerDataChanged.connect(self.on_header_data_changed)
+
+        self.invalidateFilter()
+
     def setSourceModel(self, model):
         # Must connect source model's signals otherwise the proxy's filtering
         # will modify the filters
@@ -804,32 +824,35 @@ class HeaderFilterProxy(QtCore.QSortFilterProxyModel):
             curr_model.columnsInserted.disconnect(self.on_columns_inserted)
             curr_model.columnsRemoved.disconnect(self.on_columns_removed)
 
+        self._filters.clear()
+        if model is not None:
+            model.rowsRemoved.connect(self.on_rows_removed)
+            model.rowsInserted.connect(self.on_rows_inserted)
+            model.columnsInserted.connect(self.on_columns_inserted)
+            model.columnsRemoved.connect(self.on_columns_removed)
+            self._filters = {
+                QtCore.Qt.Horizontal: [""] * model.columnCount(),
+                QtCore.Qt.Vertical: [""] * model.rowCount(),
+            }
         super(HeaderFilterProxy, self).setSourceModel(model)
-        self._filters = {
-            QtCore.Qt.Horizontal: [""] * model.columnCount(),
-            QtCore.Qt.Vertical: [""] * model.rowCount(),
-        }
-        curr_model = self.sourceModel()
-        if curr_model is not None:
-            self.sourceModel().rowsRemoved.connect(self.on_rows_removed)
-            self.sourceModel().rowsInserted.connect(self.on_rows_inserted)
-            self.sourceModel().columnsInserted.connect(self.on_columns_inserted)
-            self.sourceModel().columnsRemoved.connect(self.on_columns_removed)
 
     def headerData(self, section, orientation, role=QtCore.Qt.DisplayRole):
-        if role == HeaderRole.EditRole:
+        if self._internal_cache_enabled and role == HeaderRole.EditRole:
             return self._filters[orientation][section]
-        return super(HeaderFilterProxy, self).headerData(section, orientation, role)
+        else:
+            return super(HeaderFilterProxy, self).headerData(section, orientation, role)
 
     def setHeaderData(self, section, orientation, value, role=QtCore.Qt.DisplayRole):
-        if role == HeaderRole.EditRole:
+        if self._internal_cache_enabled and role == HeaderRole.EditRole:
             value = str(value)
             string_list = self._filters[orientation]
             if string_list[section] != value:
                 string_list[section] = value
                 self.headerDataChanged.emit(orientation, section, section)
                 return True
-        return super(HeaderFilterProxy, self).setHeaderData(section, orientation, role)
+            return False
+        else:
+            return super(HeaderFilterProxy, self).setHeaderData(section, orientation, value, role)
 
     def _matches_filter(self, cell_text, filter_string, filter_type, case_sensitivity):
         if case_sensitivity == QtCore.Qt.CaseInsensitive:
@@ -845,42 +868,37 @@ class HeaderFilterProxy(QtCore.QSortFilterProxyModel):
         else:
             raise ValueError("Unknown filter type: {}".format(filter_type))
 
+    def _filter_section(self, section, orientaton, cell_text):
+        filter_text = self.headerData(section, orientaton, HeaderRole.EditRole)
+        if not filter_text:
+            return True
+
+        filter_type = (
+            self.headerData(section, orientaton, HeaderRole.FilterTypeRole)
+            or self._default_filter_type
+        )
+        case_sensitivity = self.headerData(section, orientaton, HeaderRole.CaseSensitivityRole)
+        if case_sensitivity is None:
+            case_sensitivity = self.filterCaseSensitivity()
+
+        return self._matches_filter(cell_text, filter_text, filter_type, case_sensitivity)
+
     def filterAcceptsColumn(self, column, index):
-        source_model = self.sourceModel()
         source_index = self.mapToSource(index)
-        for row, filter_text in enumerate(self._filters[QtCore.Qt.Vertical]):
-            if not filter_text:
-                continue
-            filter_type = (
-                self.headerData(row, QtCore.Qt.Vertical, HeaderRole.FilterTypeRole)
-                or self._default_filter_type
-            )
-            child_index = source_model.index(row, column, source_index)
+        for row in range(self.sourceModel().rowCount(source_index)):
+            child_index = self.sourceModel().index(row, column, source_index)
             cell_text = str(child_index.data(QtCore.Qt.DisplayRole))
-            case_sensitivity = self.headerData(row, QtCore.Qt.Vertical, HeaderRole.CaseSensitivityRole)
-            if case_sensitivity is None:
-                case_sensitivity = self.filterCaseSensitivity()
-            if not self._matches_filter(cell_text, filter_text, filter_type, case_sensitivity):
+            if not self._filter_section(row, QtCore.Qt.Vertical, cell_text):
                 return False
 
         return True
 
     def filterAcceptsRow(self, row, index):
-        source_model = self.sourceModel()
         source_index = self.mapToSource(index)
-        for column, filter_text in enumerate(self._filters[QtCore.Qt.Horizontal]):
-            if not filter_text:
-                continue
-            filter_type = (
-                self.headerData(column, QtCore.Qt.Horizontal, HeaderRole.FilterTypeRole)
-                or self._default_filter_type
-            )
-            child_index = source_model.index(row, column, source_index)
+        for column in range(self.sourceModel().columnCount(source_index)):
+            child_index = self.sourceModel().index(row, column, source_index)
             cell_text = str(child_index.data(QtCore.Qt.DisplayRole))
-            case_sensitivity = self.headerData(column, QtCore.Qt.Horizontal, HeaderRole.CaseSensitivityRole)
-            if case_sensitivity is None:
-                case_sensitivity = self.filterCaseSensitivity()
-            if not self._matches_filter(cell_text, filter_text, filter_type, case_sensitivity):
+            if not self._filter_section(column, QtCore.Qt.Horizontal, cell_text):
                 return False
 
         return True
@@ -924,11 +942,17 @@ class TableFilterView(QtWidgets.QTableView):
     def filter_case_sensitivity(self):
         return self._proxy.filterCaseSensitivity()
 
+    def is_internal_cache_enabled(self):
+        return self._proxy.is_internal_cache_enabled()
+
     def set_default_filter_type(self, filter_type):
         self._proxy.default_filter_type = filter_type
 
     def set_filter_case_sensitivity(self, sensitivity):
         self._proxy.setFilterCaseSensitivity(sensitivity)
+
+    def set_internal_cache_enabled(self, enabled):
+        self._proxy.set_internal_cache_enabled(enabled)
 
     def set_horizontal_delegate(self, delegate):
         self.horizontalHeader().setItemDelegate(delegate)
@@ -961,12 +985,14 @@ if __name__ == "__main__":
             # type: (QtWidgets.QWidget) -> None
             super(ExampleModel, self).__init__(parent)
             self._data = [
-                ["1", "2", "3"],
-                ["abc", "def", "ghi"],
-                ["def", "ghi", "abc"],
-                ["ghi", "abc", "def"],
-                ["ONE", "TWO", "THREE"],
+                ["Red", "10", "Banana"],
+                ["Blue", "10", "Apple"],
+                ["Green", "20", "Orange"],
+                ["Yellow", "20", "Mango"],
+                ["White", "30", "Pineapple"],
+                ["Black", "30", "Lemon"],
             ]
+            self._filters = [""] * len(self._data)
 
         def columnCount(self, parent=QtCore.QModelIndex()):
             # type: (QtCore.QModelIndex) -> int
@@ -987,19 +1013,21 @@ if __name__ == "__main__":
             # type: (int, QtCore.Qt.Orientation, int) -> object
             if orientation == QtCore.Qt.Vertical:
                 return
+            if role == HeaderRole.EditRole:
+                return self._filters[section]
             if role == QtCore.Qt.DisplayRole:
                 return self.columns[section]
             # elif role == HeaderRole.EditableRole:
             #     return section != 0
             elif role == HeaderRole.ChoicesRole:
-                return ["", "1", "2", "3", "b", "e", "h"]
+                return ["", "10", "20", "30"]
             elif role == HeaderRole.BackgroundColorRole and section != 0:
                 return QtGui.QColor("red")
             elif role == HeaderRole.FilterTypeRole:
                 if section == 0:
-                    return HeaderFilterProxy.MatchExactly
-                elif section == 1:
                     return HeaderFilterProxy.MatchContains
+                elif section == 1:
+                    return HeaderFilterProxy.MatchExactly
                 elif section == 2:
                     return HeaderFilterProxy.MatchStarts
             elif role == HeaderRole.CaseSensitivityRole:
@@ -1022,6 +1050,15 @@ if __name__ == "__main__":
             # type: (QtCore.QModelIndex) -> int
             return len(self._data)
 
+        def setHeaderData(self, section, orientation, value, role=QtCore.Qt.DisplayRole):
+            if role == HeaderRole.EditRole and orientation == QtCore.Qt.Horizontal:
+                value = str(value)
+                if self._filters[section] != value:
+                    self._filters[section] = value
+                    self.headerDataChanged.emit(orientation, section, value)
+                    return True
+            return False
+
     model = ExampleModel()
 
     def debug(*args, **kwargs):
@@ -1031,9 +1068,10 @@ if __name__ == "__main__":
 
     view = TableFilterView(model=model)
     combo_delegate = ComboHeaderDelegate(view)
-    # view.set_horizontal_secton_delegate(1, combo_delegate)
+    view.set_horizontal_secton_delegate(1, combo_delegate)
     view.show()
     view.set_filter_case_sensitivity(QtCore.Qt.CaseInsensitive)
+    # view.set_internal_cache_enabled(False)
 
     app.exec_()
     sys.exit()

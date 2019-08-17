@@ -233,9 +233,32 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
         return items
 
     def is_container_item(self, item):
+        """
+        Args:
+            item (QtWidgets.QTreeWidgetItem): Item from the tree
+
+        Returns:
+            bool: Whether or not the item represents a container item rather
+                than an actual value
+        """
         return item.type() == self.ContainerItemType
 
     def item_from_path(self, path, parent_item):
+        """
+        Raises:
+            TypeError: If parent_item is not a container, or container type is
+                unknown
+            ValueError: If any of the provided path items are invalid or do not
+                resolve to an item.
+
+        Args:
+            path (list): List of __getitem__ values to walk through
+            parent_item (QtWidgets.QTreeWidgetItem): Item to start walking from.
+                Must be a container item.
+
+        Returns:
+            QtWidgets.QTreeWidgetItem: Item the path resolves to
+        """
         parent_item = parent_item or self.topLevelItem(0)
         if parent_item is not None and not self.is_container_item(parent_item):
             raise TypeError("Parent item must be a container type")
@@ -244,7 +267,7 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
         value = path.pop(0)
         if container_type in (list, set, tuple):
             if not isinstance(value, int):
-                raise TypeError(
+                raise ValueError(
                     "Invalid __getitem__ for list type, must be int, got {}".format(
                         value
                     )

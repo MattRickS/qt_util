@@ -10,14 +10,13 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
     The chain of __getitem__ calls that would reach an item from the source
     object can be retrieved using path_to_item().
     """
-    # TODO: Change to CONTAINER_TYPE and store the class in a ContainerTypeRole
-    DICT_ITEM_TYPE = QtWidgets.QTreeWidgetItem.UserType + 1
-    LIST_ITEM_TYPE = QtWidgets.QTreeWidgetItem.UserType + 2
-    VALUE_ITEM_TYPE = QtWidgets.QTreeWidgetItem.UserType + 3
-    KEY_ITEM_TYPE = QtWidgets.QTreeWidgetItem.UserType + 4
+    CONTAINER_ITEM_TYPE = QtWidgets.QTreeWidgetItem.UserType + 1
+    VALUE_ITEM_TYPE = QtWidgets.QTreeWidgetItem.UserType + 2
+    KEY_ITEM_TYPE = QtWidgets.QTreeWidgetItem.UserType + 3
 
     ValueRole = QtCore.Qt.UserRole + 1
     GetItemRole = QtCore.Qt.UserRole + 2
+    ContainerTypeRole = QtCore.Qt.UserRole + 3
 
     @classmethod
     def from_object(cls, obj, parent=None):
@@ -75,17 +74,21 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
         }
 
     def item_to_object(self, item):
-        if item.type() == self.DICT_ITEM_TYPE:
-            data = {}
-            for row in range(item.childCount()):
-                key_item = item.child(row)
-                value_item = key_item.child(0)
-                key = key_item.data(0, self.GetItemRole)
-                value = self.item_to_object(value_item)
-                data[key] = value
-        elif item.type() == self.LIST_ITEM_TYPE:
-            values = (self.item_to_object(item.child(row)) for row in range(item.childCount()))
-            data = list(values)
+        if self.is_container_type(item):
+            container_type = item.data(0, self.ContainerTypeRole)
+            if container_type == dict:
+                data = {}
+                for row in range(item.childCount()):
+                    key_item = item.child(row)
+                    value_item = key_item.child(0)
+                    key = key_item.data(0, self.GetItemRole)
+                    value = self.item_to_object(value_item)
+                    data[key] = value
+            elif container_type in (list, tuple, set):
+                values = (self.item_to_object(item.child(row)) for row in range(item.childCount()))
+                data = container_type(values)
+            else:
+                raise TypeError("Unknown container type {} for item {}".format(container_type, item))
         else:
             data = item.data(0, self.ValueRole)
         return data
@@ -97,15 +100,16 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
         ]
 
     def is_container_type(self, item):
-        return item.type() in (self.LIST_ITEM_TYPE, self.DICT_ITEM_TYPE)
+        return item.type() == self.CONTAINER_ITEM_TYPE
 
     def item_for_path(self, path, parent_item):
-        if parent_item is not None and not self.is_container_type(parent_item):
-            raise TypeError("Source item must be a container type")
-
         parent_item = parent_item or self.topLevelItem(0)
+        if parent_item is not None and not self.is_container_type(parent_item):
+            raise TypeError("Parent item must be a container type")
+
+        container_type = parent_item.data(0, self.ContainerTypeRole)
         value = path.pop(0)
-        if parent_item.type() == self.LIST_ITEM_TYPE:
+        if container_type in (list, set, tuple):
             if not isinstance(value, int):
                 raise TypeError(
                     "Invalid __getitem__ for list type, must be int, got {}".format(
@@ -117,7 +121,7 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
                     "Invalid index {} for parent item {}".format(value, parent_item)
                 )
             value_item = parent_item.child(value)
-        elif parent_item.type() == self.DICT_ITEM_TYPE:
+        elif container_type == dict:
             for row in range(parent_item.childCount()):
                 key_item = parent_item.child(row)
                 getitem_value = key_item.data(0, self.GetItemRole)
@@ -197,10 +201,12 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
         Returns:
             QtWidgets.QTreeWidgetItem: Item for the closing literal
         """
-        start_symbol, end_symbol = self.symbols[dict]
+        dict_type = type(dct)
+        start_symbol, end_symbol = self.symbols[dict_type]
         start_item = self.add_item(
-            start_symbol, parent=parent, previous=previous, item_type=self.DICT_ITEM_TYPE
+            start_symbol, parent=parent, previous=previous, item_type=self.CONTAINER_ITEM_TYPE
         )
+        start_item.setData(0, self.ContainerTypeRole, dict_type)
 
         last_item = None
         for key, value in dct.items():
@@ -211,8 +217,9 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
             self.add_object(value, parent=last_item)
 
         end_item = self.add_item(
-            end_symbol, parent=parent, previous=start_item, item_type=self.DICT_ITEM_TYPE
+            end_symbol, parent=parent, previous=start_item, item_type=self.CONTAINER_ITEM_TYPE
         )
+        end_item.setData(0, self.ContainerTypeRole, dict_type)
         return start_item, end_item
 
     def add_iterable(self, iterable, parent=None, previous=None):
@@ -230,10 +237,12 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
         Returns:
             QtWidgets.QTreeWidgetItem: Item for the closing literal
         """
-        start_symbol, end_symbol = self.symbols[type(iterable)]
+        iterable_type = type(iterable)
+        start_symbol, end_symbol = self.symbols[iterable_type]
         start_item = self.add_item(
-            start_symbol, parent=parent, previous=previous, item_type=self.LIST_ITEM_TYPE
+            start_symbol, parent=parent, previous=previous, item_type=self.CONTAINER_ITEM_TYPE
         )
+        start_item.setData(0, self.ContainerTypeRole, iterable_type)
 
         last_item = None
         for i, val in enumerate(iterable):
@@ -241,8 +250,9 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
             last_item.setData(0, self.GetItemRole, i)
 
         end_item = self.add_item(
-            end_symbol, parent=parent, previous=start_item, item_type=self.LIST_ITEM_TYPE
+            end_symbol, parent=parent, previous=start_item, item_type=self.CONTAINER_ITEM_TYPE
         )
+        end_item.setData(0, self.ContainerTypeRole, iterable_type)
         return start_item, end_item
 
     def add_item(self, value, parent=None, previous=None, item_type=VALUE_ITEM_TYPE):

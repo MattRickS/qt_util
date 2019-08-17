@@ -232,12 +232,12 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
             items = (item, None)
         return items
 
-    def is_container_type(self, item):
+    def is_container_item(self, item):
         return item.type() == self.ContainerItemType
 
     def item_from_path(self, path, parent_item):
         parent_item = parent_item or self.topLevelItem(0)
-        if parent_item is not None and not self.is_container_type(parent_item):
+        if parent_item is not None and not self.is_container_item(parent_item):
             raise TypeError("Parent item must be a container type")
 
         container_type = parent_item.data(0, self.ContainerTypeRole)
@@ -292,7 +292,7 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
         if key_to_value and item.type() == self.KeyItemType:
             item = item.child(0)
 
-        if self.is_container_type(item):
+        if self.is_container_item(item):
             container_type = item.data(0, self.ContainerTypeRole)
             if container_type == dict:
                 data = {}

@@ -41,7 +41,8 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
         while item is not None:
             if item is not None:
                 get_item = item.data(0, self.GetItemRole)
-                if get_item is not None:
+                # None is a valid dictionary key
+                if get_item is not None or item.type() == self.KEY_ITEM_TYPE:
                     path.append(get_item)
             item = item.parent()
         return path[::-1]
@@ -113,7 +114,7 @@ if __name__ == "__main__":
 
     obj = {
         "contents": ["|root|node_{}".format(i) for i in range(10)],
-        "something else": {"child": {"grandchildren": [i for i in range(10, 20)]}},
+        "something else": {None: {"grandchildren": [i for i in range(10, 20)]}},
         1: 5.0,
         "nested_lists": [
             [["a", "b", "c"], [1, 2], "not a list", {"key": "value"}],

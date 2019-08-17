@@ -120,7 +120,10 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
             parent (:obj:`QtWidgets.QWidget`, optional):
         """
         super(TreeObjectDisplay, self).__init__(parent)
+        self.setItemDelegate(ObjectDelegate(self))
         self.header().hide()
+
+        self._editable = editable
         self.colours = {
             int: QtGui.QColor("cyan"),
             float: QtGui.QColor("cyan"),
@@ -134,8 +137,6 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
             set: ("{", "}"),
             dict: ("{", "}"),
         }
-        self._editable = editable
-        self.setItemDelegate(ObjectDelegate(self))
 
         self.currentItemChanged.connect(self.on_item_selection_changed)
 

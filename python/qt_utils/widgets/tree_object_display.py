@@ -27,6 +27,13 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
     def __init__(self, parent=None):
         super(TreeObjectDisplay, self).__init__(parent)
         self.header().hide()
+        self.colours = {
+            int: QtGui.QColor("cyan"),
+            float: QtGui.QColor("cyan"),
+            str: QtGui.QColor("green"),
+            bool: QtGui.QColor("orange"),
+            type(None): QtGui.QColor("red")
+        }
 
     def path_to_item(self, item):
         # type: (QtWidgets.QTreeWidgetItem) -> list[str]
@@ -86,6 +93,16 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
         item.setText(0, str(value))
         if item_type == self.VALUE_ITEM_TYPE:
             item.setData(0, self.ValueRole, value)
+        if item_type in (self.VALUE_ITEM_TYPE, self.KEY_ITEM_TYPE):
+            try:
+                value_type = type(value)
+            except Exception:
+                pass
+            else:
+                colour = self.colours.get(value_type)
+                if colour is not None:
+                    item.setData(0, QtCore.Qt.ForegroundRole, colour)
+
         return item
 
 
@@ -101,7 +118,9 @@ if __name__ == "__main__":
         "nested_lists": [
             [["a", "b", "c"], [1, 2], "not a list", {"key": "value"}],
             1,
+            True,
             [1, 2, 3, 4],
+            None,
         ],
     }
 

@@ -3,6 +3,48 @@ import contextlib
 from PySide2 import QtCore, QtGui, QtWidgets
 
 
+class ObjectDelegate(QtWidgets.QStyledItemDelegate):
+    def createEditor(self, parent, option, index):
+        value = index.data(TreeObjectDisplay.ValueRole)
+        if isinstance(value, bool):
+            return QtWidgets.QCheckBox(parent)
+        elif isinstance(value, int):
+            return QtWidgets.QSpinBox(parent)
+        elif isinstance(value, float):
+            return QtWidgets.QDoubleSpinBox(parent)
+        elif isinstance(value, str) or value is None:
+            return QtWidgets.QLineEdit(parent)
+        else:
+            return super(ObjectDelegate, self).createEditor(parent, option, index)
+
+    def setEditorData(self, editor, index):
+        # type: (QtWidgets.QWidget, QtCore.QModelIndex) -> None
+        value = index.data(TreeObjectDisplay.ValueRole)
+        if isinstance(editor, QtWidgets.QCheckBox):
+            editor.setChecked(value)
+        elif isinstance(editor, QtWidgets.QAbstractSpinBox):
+            editor.setValue(value)
+        elif isinstance(editor, QtWidgets.QLineEdit):
+            editor.setText(value)
+        else:
+            super(ObjectDelegate, self).setEditorData(editor, index)
+
+    def setModelData(self, editor, model, index):
+        # type: (QtWidgets.QWidget, QtCore.QAbstractItemModel, QtCore.QModelIndex) -> None
+        if isinstance(editor, QtWidgets.QCheckBox):
+            value = editor.isChecked()
+        elif isinstance(editor, QtWidgets.QAbstractSpinBox):
+            value = editor.value()
+        elif isinstance(editor, QtWidgets.QLineEdit):
+            value = editor.text()
+        else:
+            super(ObjectDelegate, self).setModelData(editor, model, index)
+            return
+
+        super(ObjectDelegate, self).setModelData(editor, model, index)
+        model.setData(index, value, TreeObjectDisplay.ValueRole)
+
+
 class TreeObjectDisplay(QtWidgets.QTreeWidget):
     """
     Capable of displaying arbitrary python datasets in a tree hierarchy,
@@ -11,6 +53,9 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
 
     The chain of __getitem__ calls that would reach an item from the source
     object can be retrieved using path_to_item().
+
+    The tree can be made editable, with a default editor supplied for each base
+    datatype (bool, float, int, string). None types are treated as strings.
     """
 
     ContainerItemType = QtWidgets.QTreeWidgetItem.UserType + 1
@@ -22,26 +67,30 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
     ContainerTypeRole = QtCore.Qt.UserRole + 3
 
     @classmethod
-    def from_object(cls, obj, parent=None):
+    def from_object(cls, obj, editable=False, parent=None):
         """
         Args:
             obj (object): Python object to construct the display for
+            editable (:obj:`bool`, optional): Whether or not the value items
+                can be edited.
             parent (:obj:`QtWidgets.QWidget`, optional):
 
         Returns:
             TreeObjectDisplay
         """
-        widget = cls(parent)
+        widget = cls(editable=editable, parent=parent)
         widget.add_object(obj)
         return widget
 
     @classmethod
-    def show_object(cls, obj, expanded=True, parent=None):
+    def show_object(cls, obj, editable=False, expanded=True, parent=None):
         """
         Convenience method for displaying the object immediately
 
         Args:
             obj (object): Python object to construct the display for
+            editable (:obj:`bool`, optional): Whether or not the value items
+                can be edited.
             expanded (:obj:`bool`, optional): Whether or not to recursively
                 expand the display
             parent (:obj:`QtWidgets.QWidget`, optional):
@@ -49,13 +98,13 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
         Returns:
             TreeObjectDisplay
         """
-        widget = cls.from_object(obj, parent=parent)
+        widget = cls.from_object(obj, editable=editable, parent=parent)
         if expanded:
             widget.expandAll()
         widget.show()
         return widget
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, editable=False):
         """
         Args:
             parent (:obj:`QtWidgets.QWidget`, optional):
@@ -75,6 +124,8 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
             set: ("{", "}"),
             dict: ("{", "}"),
         }
+        self._editable = editable
+        self.setItemDelegate(ObjectDelegate(self))
 
     @contextlib.contextmanager
     def container_creation(self, container_type, parent=None, previous=None):
@@ -201,6 +252,8 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
         item.setText(0, str(value))
         if item_type == self.ValueItemType:
             item.setData(0, self.ValueRole, value)
+            if self.is_editable():
+                item.setFlags(item.flags() | QtCore.Qt.ItemIsEditable)
         if item_type in (self.ValueItemType, self.KeyItemType):
             value_type = type(value)
             colour = self.colours.get(value_type)
@@ -242,6 +295,13 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
                 than an actual value
         """
         return item.type() == self.ContainerItemType
+
+    def is_editable(self):
+        """
+        Returns:
+            bool: Whether or not the value items are editable
+        """
+        return self._editable
 
     def item_from_path(self, path, parent_item):
         """
@@ -378,6 +438,27 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
             item = item.parent()
         return path[::-1]
 
+    def set_editable(self, editable):
+        """
+        Args:
+            editable (bool): Whether or not the value items should be editable
+        """
+        self._editable = bool(editable)
+        flags = (QtWidgets.QTreeWidgetItemIterator.NotEditable if editable else QtWidgets.QTreeWidgetItemIterator.Editable)
+        iterator = QtWidgets.QTreeWidgetItemIterator(self, flags)
+        while iterator.value():
+            item = iterator.value()
+
+            if item.type() == self.ValueItemType:
+                item_flags = item.flags()
+                if editable:
+                    item_flags |= QtCore.Qt.ItemIsEditable
+                else:
+                    item_flags &= ~QtCore.Qt.ItemIsEditable
+                item.setFlags(item_flags)
+
+            iterator += 1
+
 
 if __name__ == "__main__":
     import sys
@@ -397,7 +478,7 @@ if __name__ == "__main__":
         ],
     }
 
-    widget = TreeObjectDisplay.show_object(obj)
+    widget = TreeObjectDisplay.show_object(obj, editable=True)
     print(widget.objects())
 
     def debug():

@@ -202,14 +202,10 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
         if item_type == self.ValueItemType:
             item.setData(0, self.ValueRole, value)
         if item_type in (self.ValueItemType, self.KeyItemType):
-            try:
-                value_type = type(value)
-            except Exception:
-                pass
-            else:
-                colour = self.colours.get(value_type)
-                if colour is not None:
-                    item.setData(0, QtCore.Qt.ForegroundRole, colour)
+            value_type = type(value)
+            colour = self.colours.get(value_type)
+            if colour is not None:
+                item.setData(0, QtCore.Qt.ForegroundRole, colour)
 
         return item
 

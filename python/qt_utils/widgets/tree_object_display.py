@@ -155,11 +155,10 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
         """
         path = []
         while item is not None:
-            if item is not None:
-                get_item = item.data(0, self.GetItemRole)
-                # None is a valid dictionary key
-                if get_item is not None or item.type() == self.KEY_ITEM_TYPE:
-                    path.append(get_item)
+            get_item = item.data(0, self.GetItemRole)
+            # None is a valid dictionary key
+            if get_item is not None or item.type() == self.KEY_ITEM_TYPE:
+                path.append(get_item)
             item = item.parent()
         return path[::-1]
 
@@ -178,12 +177,13 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
             QtWidgets.QTreeWidgetItem: Last created item
         """
         if isinstance(obj, dict):
-            item = self.add_dict(obj, parent=parent, previous=previous)
+            items = self.add_dict(obj, parent=parent, previous=previous)
         elif isinstance(obj, (list, tuple, set)):
-            item = self.add_iterable(obj, parent=parent, previous=previous)
+            items = self.add_iterable(obj, parent=parent, previous=previous)
         else:
             item = self.add_item(obj, parent=parent, previous=previous)
-        return item
+            items = (item, None)
+        return items
 
     def add_dict(self, dct, parent=None, previous=None):
         """
@@ -213,7 +213,7 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
         end_item = self.add_item(
             end_symbol, parent=parent, previous=start_item, item_type=self.DICT_ITEM_TYPE
         )
-        return end_item
+        return start_item, end_item
 
     def add_iterable(self, iterable, parent=None, previous=None):
         """
@@ -237,13 +237,13 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
 
         last_item = None
         for i, val in enumerate(iterable):
-            last_item = self.add_object(val, parent=start_item, previous=last_item)
+            last_item, _ = self.add_object(val, parent=start_item, previous=last_item)
             last_item.setData(0, self.GetItemRole, i)
 
         end_item = self.add_item(
             end_symbol, parent=parent, previous=start_item, item_type=self.LIST_ITEM_TYPE
         )
-        return end_item
+        return start_item, end_item
 
     def add_item(self, value, parent=None, previous=None, item_type=VALUE_ITEM_TYPE):
         """

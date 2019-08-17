@@ -105,122 +105,6 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
         end_item.setData(0, self.ContainerTypeRole, container_type)
         items.append(end_item)
 
-    def item_to_object(self, item):
-        if self.is_container_type(item):
-            container_type = item.data(0, self.ContainerTypeRole)
-            if container_type == dict:
-                data = {}
-                for row in range(item.childCount()):
-                    key_item = item.child(row)
-                    value_item = key_item.child(0)
-                    key = key_item.data(0, self.GetItemRole)
-                    value = self.item_to_object(value_item)
-                    data[key] = value
-            elif container_type in (list, tuple, set):
-                values = (self.item_to_object(item.child(row)) for row in range(item.childCount()))
-                data = container_type(values)
-            else:
-                raise TypeError("Unknown container type {} for item {}".format(container_type, item))
-        else:
-            data = item.data(0, self.ValueRole)
-        return data
-
-    def objects(self):
-        return [
-            self.item_to_object(self.topLevelItem(row))
-            for row in range(self.topLevelItemCount())
-        ]
-
-    def is_container_type(self, item):
-        return item.type() == self.ContainerItemType
-
-    def item_for_path(self, path, parent_item):
-        parent_item = parent_item or self.topLevelItem(0)
-        if parent_item is not None and not self.is_container_type(parent_item):
-            raise TypeError("Parent item must be a container type")
-
-        container_type = parent_item.data(0, self.ContainerTypeRole)
-        value = path.pop(0)
-        if container_type in (list, set, tuple):
-            if not isinstance(value, int):
-                raise TypeError(
-                    "Invalid __getitem__ for list type, must be int, got {}".format(
-                        value
-                    )
-                )
-            if value < 0 or value > parent_item.childCount():
-                raise ValueError(
-                    "Invalid index {} for parent item {}".format(value, parent_item)
-                )
-            value_item = parent_item.child(value)
-        elif container_type == dict:
-            for row in range(parent_item.childCount()):
-                key_item = parent_item.child(row)
-                getitem_value = key_item.data(0, self.GetItemRole)
-                if getitem_value == value:
-                    value_item = key_item.child(0)
-                    break
-            else:
-                raise ValueError(
-                    "No key matches {} for parent item {}".format(value, parent_item)
-                )
-        else:
-            raise TypeError("Unknown parent item type: {}".format(parent_item))
-
-        if not path:
-            return value_item
-
-        return self.item_for_path(path, value_item)
-
-    def path_to_item(self, item):
-        """
-        Examples:
-            >>> obj = {"key_1": {"key_2": [1, 2, 3]}}
-            >>> widget = TreeObjectDisplay.from_obj(obj)
-            >>> #             {               key_1   {         key_2    [        2
-            >>> item = widget.topLevelItem(0).child(0).child(0).child(0).child(0).child(1)
-            >>> widget.path_to_item(item)
-            # ["key_1", "key_2", 1]
-
-        Args:
-            item (QtWidgets.QTreeWidgetItem):
-
-        Returns:
-            list: List of __getitem__ calls required to access the item from the
-                source object
-        """
-        path = []
-        while item is not None:
-            get_item = item.data(0, self.GetItemRole)
-            # None is a valid dictionary key
-            if get_item is not None or item.type() == self.KeyItemType:
-                path.append(get_item)
-            item = item.parent()
-        return path[::-1]
-
-    def add_object(self, obj, parent=None, previous=None):
-        """
-        Determines the object type and builds the corresponding tree item.
-
-        Args:
-            obj (object): Object to add
-            parent (:obj:`QtWidgets.QTreeWidgetItem`, optional=True): Item to
-                create the object under. If not given, defaults to root.
-            previous (:obj:`QtWidgets.QTreeWidgetItem`, optional=True): Item to
-                place the new item after.
-
-        Returns:
-            QtWidgets.QTreeWidgetItem: Last created item
-        """
-        if isinstance(obj, dict):
-            items = self.add_dict(obj, parent=parent, previous=previous)
-        elif isinstance(obj, (list, tuple, set)):
-            items = self.add_iterable(obj, parent=parent, previous=previous)
-        else:
-            item = self.add_item(obj, parent=parent, previous=previous)
-            items = (item, None)
-        return items
-
     def add_dict(self, dct, parent=None, previous=None):
         """
         Args:
@@ -313,6 +197,122 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
 
         return item
 
+    def add_object(self, obj, parent=None, previous=None):
+        """
+        Determines the object type and builds the corresponding tree item.
+
+        Args:
+            obj (object): Object to add
+            parent (:obj:`QtWidgets.QTreeWidgetItem`, optional=True): Item to
+                create the object under. If not given, defaults to root.
+            previous (:obj:`QtWidgets.QTreeWidgetItem`, optional=True): Item to
+                place the new item after.
+
+        Returns:
+            QtWidgets.QTreeWidgetItem: Last created item
+        """
+        if isinstance(obj, dict):
+            items = self.add_dict(obj, parent=parent, previous=previous)
+        elif isinstance(obj, (list, tuple, set)):
+            items = self.add_iterable(obj, parent=parent, previous=previous)
+        else:
+            item = self.add_item(obj, parent=parent, previous=previous)
+            items = (item, None)
+        return items
+
+    def is_container_type(self, item):
+        return item.type() == self.ContainerItemType
+
+    def item_from_path(self, path, parent_item):
+        parent_item = parent_item or self.topLevelItem(0)
+        if parent_item is not None and not self.is_container_type(parent_item):
+            raise TypeError("Parent item must be a container type")
+
+        container_type = parent_item.data(0, self.ContainerTypeRole)
+        value = path.pop(0)
+        if container_type in (list, set, tuple):
+            if not isinstance(value, int):
+                raise TypeError(
+                    "Invalid __getitem__ for list type, must be int, got {}".format(
+                        value
+                    )
+                )
+            if value < 0 or value > parent_item.childCount():
+                raise ValueError(
+                    "Invalid index {} for parent item {}".format(value, parent_item)
+                )
+            value_item = parent_item.child(value)
+        elif container_type == dict:
+            for row in range(parent_item.childCount()):
+                key_item = parent_item.child(row)
+                getitem_value = key_item.data(0, self.GetItemRole)
+                if getitem_value == value:
+                    value_item = key_item.child(0)
+                    break
+            else:
+                raise ValueError(
+                    "No key matches {} for parent item {}".format(value, parent_item)
+                )
+        else:
+            raise TypeError("Unknown parent item type: {}".format(parent_item))
+
+        if not path:
+            return value_item
+
+        return self.item_from_path(path, value_item)
+
+    def item_to_object(self, item):
+        if self.is_container_type(item):
+            container_type = item.data(0, self.ContainerTypeRole)
+            if container_type == dict:
+                data = {}
+                for row in range(item.childCount()):
+                    key_item = item.child(row)
+                    value_item = key_item.child(0)
+                    key = key_item.data(0, self.GetItemRole)
+                    value = self.item_to_object(value_item)
+                    data[key] = value
+            elif container_type in (list, tuple, set):
+                values = (self.item_to_object(item.child(row)) for row in range(item.childCount()))
+                data = container_type(values)
+            else:
+                raise TypeError("Unknown container type {} for item {}".format(container_type, item))
+        else:
+            data = item.data(0, self.ValueRole)
+        return data
+
+    def objects(self):
+        return [
+            self.item_to_object(self.topLevelItem(row))
+            for row in range(self.topLevelItemCount())
+        ]
+
+    def path_from_item(self, item):
+        """
+        Examples:
+            >>> obj = {"key_1": {"key_2": [1, 2, 3]}}
+            >>> widget = TreeObjectDisplay.from_obj(obj)
+            >>> #             {               key_1   {         key_2    [        2
+            >>> item = widget.topLevelItem(0).child(0).child(0).child(0).child(0).child(1)
+            >>> widget.path_from_item(item)
+            # ["key_1", "key_2", 1]
+
+        Args:
+            item (QtWidgets.QTreeWidgetItem):
+
+        Returns:
+            list: List of __getitem__ calls required to access the item from the
+                source object
+        """
+        path = []
+        while item is not None:
+            get_item = item.data(0, self.GetItemRole)
+            # None is a valid dictionary key
+            if get_item is not None or item.type() == self.KeyItemType:
+                path.append(get_item)
+            item = item.parent()
+        return path[::-1]
+
 
 if __name__ == "__main__":
     import sys
@@ -339,14 +339,14 @@ if __name__ == "__main__":
         for item in widget.selectedItems():
             print("="*50)
             print(item)
-            path = widget.path_to_item(item)
+            path = widget.path_from_item(item)
             print(path)
             print(widget.item_to_object(item))
             if path:
-                solved_item = widget.item_for_path(path, widget.topLevelItem(0))
+                solved_item = widget.item_from_path(path, widget.topLevelItem(0))
                 print(solved_item)
                 print(widget.item_to_object(item))
-                print(widget.path_to_item(solved_item))
+                print(widget.path_from_item(solved_item))
 
     widget.itemSelectionChanged.connect(debug)
 

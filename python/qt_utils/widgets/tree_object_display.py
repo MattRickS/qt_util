@@ -1,3 +1,5 @@
+import contextlib
+
 from PySide2 import QtCore, QtGui, QtWidgets
 
 
@@ -72,6 +74,36 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
             set: ("{", "}"),
             dict: ("{", "}"),
         }
+
+    @contextlib.contextmanager
+    def container_creation(self, container_type, parent=None, previous=None):
+        """
+        Context manager for creating container items. Context yields a list of
+        items that will initially contain the start item, and will append the
+        closing item upon completion. Literals for the container type are
+        extracted from the symbols mapping using their corresponding type.
+
+        Args:
+            container_type (Type):
+            parent (:obj:`QtWidgets.QTreeWidgetItem`, optional=True): Item to
+                create the object under. If not given, defaults to root.
+            previous (:obj:`QtWidgets.QTreeWidgetItem`, optional=True): Item to
+                place the new item after.
+        """
+        start_symbol, end_symbol = self.symbols[container_type]
+        start_item = self.add_item(
+            start_symbol, parent=parent, previous=previous, item_type=self.CONTAINER_ITEM_TYPE
+        )
+        start_item.setData(0, self.ContainerTypeRole, container_type)
+        items = [start_item]
+
+        yield items
+
+        end_item = self.add_item(
+            end_symbol, parent=parent, previous=start_item, item_type=self.CONTAINER_ITEM_TYPE
+        )
+        end_item.setData(0, self.ContainerTypeRole, container_type)
+        items.append(end_item)
 
     def item_to_object(self, item):
         if self.is_container_type(item):
@@ -202,25 +234,18 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
             QtWidgets.QTreeWidgetItem: Item for the closing literal
         """
         dict_type = type(dct)
-        start_symbol, end_symbol = self.symbols[dict_type]
-        start_item = self.add_item(
-            start_symbol, parent=parent, previous=previous, item_type=self.CONTAINER_ITEM_TYPE
-        )
-        start_item.setData(0, self.ContainerTypeRole, dict_type)
 
-        last_item = None
-        for key, value in dct.items():
-            last_item = self.add_item(
-                key, parent=start_item, previous=last_item, item_type=self.KEY_ITEM_TYPE
-            )
-            last_item.setData(0, self.GetItemRole, key)
-            self.add_object(value, parent=last_item)
+        with self.container_creation(dict_type, parent=parent, previous=previous) as items:
+            start_item = items[0]
+            last_item = None
+            for key, value in dct.items():
+                last_item = self.add_item(
+                    key, parent=start_item, previous=last_item, item_type=self.KEY_ITEM_TYPE
+                )
+                last_item.setData(0, self.GetItemRole, key)
+                self.add_object(value, parent=last_item)
 
-        end_item = self.add_item(
-            end_symbol, parent=parent, previous=start_item, item_type=self.CONTAINER_ITEM_TYPE
-        )
-        end_item.setData(0, self.ContainerTypeRole, dict_type)
-        return start_item, end_item
+        return items
 
     def add_iterable(self, iterable, parent=None, previous=None):
         """
@@ -238,23 +263,16 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
             QtWidgets.QTreeWidgetItem: Item for the closing literal
         """
         iterable_type = type(iterable)
-        start_symbol, end_symbol = self.symbols[iterable_type]
-        start_item = self.add_item(
-            start_symbol, parent=parent, previous=previous, item_type=self.CONTAINER_ITEM_TYPE
-        )
-        start_item.setData(0, self.ContainerTypeRole, iterable_type)
 
-        last_item = None
-        for i, val in enumerate(iterable):
-            first_item, final_item = self.add_object(val, parent=start_item, previous=last_item)
-            last_item = final_item or first_item
-            last_item.setData(0, self.GetItemRole, i)
+        with self.container_creation(iterable_type, parent=parent, previous=previous) as items:
+            start_item = items[0]
+            last_item = None
+            for i, val in enumerate(iterable):
+                first_item, final_item = self.add_object(val, parent=start_item, previous=last_item)
+                last_item = final_item or first_item
+                last_item.setData(0, self.GetItemRole, i)
 
-        end_item = self.add_item(
-            end_symbol, parent=parent, previous=start_item, item_type=self.CONTAINER_ITEM_TYPE
-        )
-        end_item.setData(0, self.ContainerTypeRole, iterable_type)
-        return start_item, end_item
+        return items
 
     def add_item(self, value, parent=None, previous=None, item_type=VALUE_ITEM_TYPE):
         """

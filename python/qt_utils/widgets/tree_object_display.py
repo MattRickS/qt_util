@@ -246,7 +246,8 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
 
         last_item = None
         for i, val in enumerate(iterable):
-            last_item, _ = self.add_object(val, parent=start_item, previous=last_item)
+            first_item, final_item = self.add_object(val, parent=start_item, previous=last_item)
+            last_item = final_item or first_item
             last_item.setData(0, self.GetItemRole, i)
 
         end_item = self.add_item(

@@ -12,9 +12,9 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
     The chain of __getitem__ calls that would reach an item from the source
     object can be retrieved using path_to_item().
     """
-    CONTAINER_ITEM_TYPE = QtWidgets.QTreeWidgetItem.UserType + 1
-    VALUE_ITEM_TYPE = QtWidgets.QTreeWidgetItem.UserType + 2
-    KEY_ITEM_TYPE = QtWidgets.QTreeWidgetItem.UserType + 3
+    ContainerItemType = QtWidgets.QTreeWidgetItem.UserType + 1
+    ValueItemType = QtWidgets.QTreeWidgetItem.UserType + 2
+    KeyItemType = QtWidgets.QTreeWidgetItem.UserType + 3
 
     ValueRole = QtCore.Qt.UserRole + 1
     GetItemRole = QtCore.Qt.UserRole + 2
@@ -92,7 +92,7 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
         """
         start_symbol, end_symbol = self.symbols[container_type]
         start_item = self.add_item(
-            start_symbol, parent=parent, previous=previous, item_type=self.CONTAINER_ITEM_TYPE
+            start_symbol, parent=parent, previous=previous, item_type=self.ContainerItemType
         )
         start_item.setData(0, self.ContainerTypeRole, container_type)
         items = [start_item]
@@ -100,7 +100,7 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
         yield items
 
         end_item = self.add_item(
-            end_symbol, parent=parent, previous=start_item, item_type=self.CONTAINER_ITEM_TYPE
+            end_symbol, parent=parent, previous=start_item, item_type=self.ContainerItemType
         )
         end_item.setData(0, self.ContainerTypeRole, container_type)
         items.append(end_item)
@@ -132,7 +132,7 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
         ]
 
     def is_container_type(self, item):
-        return item.type() == self.CONTAINER_ITEM_TYPE
+        return item.type() == self.ContainerItemType
 
     def item_for_path(self, path, parent_item):
         parent_item = parent_item or self.topLevelItem(0)
@@ -193,7 +193,7 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
         while item is not None:
             get_item = item.data(0, self.GetItemRole)
             # None is a valid dictionary key
-            if get_item is not None or item.type() == self.KEY_ITEM_TYPE:
+            if get_item is not None or item.type() == self.KeyItemType:
                 path.append(get_item)
             item = item.parent()
         return path[::-1]
@@ -240,7 +240,7 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
             last_item = None
             for key, value in dct.items():
                 last_item = self.add_item(
-                    key, parent=start_item, previous=last_item, item_type=self.KEY_ITEM_TYPE
+                    key, parent=start_item, previous=last_item, item_type=self.KeyItemType
                 )
                 last_item.setData(0, self.GetItemRole, key)
                 self.add_object(value, parent=last_item)
@@ -274,7 +274,7 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
 
         return items
 
-    def add_item(self, value, parent=None, previous=None, item_type=VALUE_ITEM_TYPE):
+    def add_item(self, value, parent=None, previous=None, item_type=ValueItemType):
         """
         Adds a string representation of a value as a single item to the tree.
         The value object is stored in the ValueRole as long as the item_type is
@@ -299,9 +299,9 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
         """
         item = QtWidgets.QTreeWidgetItem(parent or self, previous, item_type)
         item.setText(0, str(value))
-        if item_type == self.VALUE_ITEM_TYPE:
+        if item_type == self.ValueItemType:
             item.setData(0, self.ValueRole, value)
-        if item_type in (self.VALUE_ITEM_TYPE, self.KEY_ITEM_TYPE):
+        if item_type in (self.ValueItemType, self.KeyItemType):
             try:
                 value_type = type(value)
             except Exception:
@@ -338,12 +338,14 @@ if __name__ == "__main__":
     def debug():
         for item in widget.selectedItems():
             print("="*50)
+            print(item)
             path = widget.path_to_item(item)
             print(path)
             print(widget.item_to_object(item))
             if path:
                 solved_item = widget.item_for_path(path, widget.topLevelItem(0))
                 print(solved_item)
+                print(widget.item_to_object(item))
                 print(widget.path_to_item(solved_item))
 
     widget.itemSelectionChanged.connect(debug)

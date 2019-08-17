@@ -34,6 +34,12 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
             bool: QtGui.QColor("orange"),
             type(None): QtGui.QColor("red")
         }
+        self.symbols = {
+            tuple: ("(", ")"),
+            list: ("[", "]"),
+            set: ("{", "}"),
+            dict: ("{", "}"),
+        }
 
     def path_to_item(self, item):
         # type: (QtWidgets.QTreeWidgetItem) -> list[str]
@@ -51,14 +57,15 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
         if isinstance(obj, dict):
             item = self.add_dict(obj, parent=parent, previous=previous)
         elif isinstance(obj, (list, tuple, set)):
-            item = self.add_list(obj, parent=parent, previous=previous)
+            item = self.add_iterable(obj, parent=parent, previous=previous)
         else:
             item = self.add_item(obj, parent=parent, previous=previous)
         return item
 
     def add_dict(self, dct, parent=None, previous=None):
+        start_symbol, end_symbol = self.symbols[dict]
         start_item = self.add_item(
-            "{", parent=parent, previous=previous, item_type=self.DICT_ITEM_TYPE
+            start_symbol, parent=parent, previous=previous, item_type=self.DICT_ITEM_TYPE
         )
 
         last_item = None
@@ -70,13 +77,14 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
             self.add_object(value, parent=last_item)
 
         end_item = self.add_item(
-            "}", parent=parent, previous=start_item, item_type=self.DICT_ITEM_TYPE
+            end_symbol, parent=parent, previous=start_item, item_type=self.DICT_ITEM_TYPE
         )
         return end_item
 
-    def add_list(self, lst, parent=None, previous=None):
+    def add_iterable(self, lst, parent=None, previous=None):
+        start_symbol, end_symbol = self.symbols[type(lst)]
         start_item = self.add_item(
-            "[", parent=parent, previous=previous, item_type=self.LIST_ITEM_TYPE
+            start_symbol, parent=parent, previous=previous, item_type=self.LIST_ITEM_TYPE
         )
 
         last_item = None
@@ -85,7 +93,7 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
             last_item.setData(0, self.GetItemRole, i)
 
         end_item = self.add_item(
-            "]", parent=parent, previous=start_item, item_type=self.LIST_ITEM_TYPE
+            end_symbol, parent=parent, previous=start_item, item_type=self.LIST_ITEM_TYPE
         )
         return end_item
 
@@ -117,7 +125,7 @@ if __name__ == "__main__":
         "something else": {None: {"grandchildren": [i for i in range(10, 20)]}},
         1: 5.0,
         "nested_lists": [
-            [["a", "b", "c"], [1, 2], "not a list", {"key": "value"}],
+            [["a", "b", "c"], (1, 2), {4, 5, 6}, "not a list", {"key": "value"}],
             1,
             True,
             [1, 2, 3, 4],

@@ -12,6 +12,7 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
     The chain of __getitem__ calls that would reach an item from the source
     object can be retrieved using path_to_item().
     """
+
     ContainerItemType = QtWidgets.QTreeWidgetItem.UserType + 1
     ValueItemType = QtWidgets.QTreeWidgetItem.UserType + 2
     KeyItemType = QtWidgets.QTreeWidgetItem.UserType + 3
@@ -66,7 +67,7 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
             float: QtGui.QColor("cyan"),
             str: QtGui.QColor("green"),
             bool: QtGui.QColor("orange"),
-            type(None): QtGui.QColor("red")
+            type(None): QtGui.QColor("red"),
         }
         self.symbols = {
             tuple: ("(", ")"),
@@ -92,7 +93,10 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
         """
         start_symbol, end_symbol = self.symbols[container_type]
         start_item = self.add_item(
-            start_symbol, parent=parent, previous=previous, item_type=self.ContainerItemType
+            start_symbol,
+            parent=parent,
+            previous=previous,
+            item_type=self.ContainerItemType,
         )
         start_item.setData(0, self.ContainerTypeRole, container_type)
         items = [start_item]
@@ -100,7 +104,10 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
         yield items
 
         end_item = self.add_item(
-            end_symbol, parent=parent, previous=start_item, item_type=self.ContainerItemType
+            end_symbol,
+            parent=parent,
+            previous=start_item,
+            item_type=self.ContainerItemType,
         )
         end_item.setData(0, self.ContainerTypeRole, container_type)
         items.append(end_item)
@@ -119,12 +126,17 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
         """
         dict_type = type(dct)
 
-        with self.container_creation(dict_type, parent=parent, previous=previous) as items:
+        with self.container_creation(
+            dict_type, parent=parent, previous=previous
+        ) as items:
             start_item = items[0]
             last_item = None
             for key, value in dct.items():
                 last_item = self.add_item(
-                    key, parent=start_item, previous=last_item, item_type=self.KeyItemType
+                    key,
+                    parent=start_item,
+                    previous=last_item,
+                    item_type=self.KeyItemType,
                 )
                 last_item.setData(0, self.GetItemRole, key)
                 self.add_object(value, parent=last_item)
@@ -148,11 +160,15 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
         """
         iterable_type = type(iterable)
 
-        with self.container_creation(iterable_type, parent=parent, previous=previous) as items:
+        with self.container_creation(
+            iterable_type, parent=parent, previous=previous
+        ) as items:
             start_item = items[0]
             last_item = None
             for i, val in enumerate(iterable):
-                first_item, final_item = self.add_object(val, parent=start_item, previous=last_item)
+                first_item, final_item = self.add_object(
+                    val, parent=start_item, previous=last_item
+                )
                 last_item = final_item or first_item
                 last_item.setData(0, self.GetItemRole, i)
 
@@ -273,10 +289,15 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
                     value = self.item_to_object(value_item)
                     data[key] = value
             elif container_type in (list, tuple, set):
-                values = (self.item_to_object(item.child(row)) for row in range(item.childCount()))
+                values = (
+                    self.item_to_object(item.child(row))
+                    for row in range(item.childCount())
+                )
                 data = container_type(values)
             else:
-                raise TypeError("Unknown container type {} for item {}".format(container_type, item))
+                raise TypeError(
+                    "Unknown container type {} for item {}".format(container_type, item)
+                )
         else:
             data = item.data(0, self.ValueRole)
         return data
@@ -337,7 +358,7 @@ if __name__ == "__main__":
 
     def debug():
         for item in widget.selectedItems():
-            print("="*50)
+            print("=" * 50)
             print(item)
             path = widget.path_from_item(item)
             print(path)

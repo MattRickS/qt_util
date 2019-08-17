@@ -302,6 +302,9 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
         represented beneath it. Warning: Key items will return just the key
         value
 
+        Raises:
+            TypeError: If item is a container and type is unknown
+
         Args:
             item (QtWidgets.QTreeWidgetItem): Item to begin converting from
             key_to_value (:obj:`bool`, optional): If True (default), items

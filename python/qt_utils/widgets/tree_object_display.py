@@ -273,7 +273,7 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
 
         return self.item_from_path(path, value_item)
 
-    def item_to_object(self, item, key_to_value=True):
+    def object_from_item(self, item, key_to_value=True):
         """
         Walks through an item's hierarchy and constructs the python object
         represented beneath it. Warning: Key items will return just the key
@@ -300,11 +300,11 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
                     key_item = item.child(row)
                     value_item = key_item.child(0)
                     key = key_item.data(0, self.GetItemRole)
-                    value = self.item_to_object(value_item)
+                    value = self.object_from_item(value_item)
                     data[key] = value
             elif container_type in (list, tuple, set):
                 values = (
-                    self.item_to_object(item.child(row))
+                    self.object_from_item(item.child(row))
                     for row in range(item.childCount())
                 )
                 data = container_type(values)
@@ -322,7 +322,7 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
             list[object]: List of all top level items converted to objects
         """
         return [
-            self.item_to_object(self.topLevelItem(row))
+            self.object_from_item(self.topLevelItem(row))
             for row in range(self.topLevelItemCount())
         ]
 
@@ -380,11 +380,11 @@ if __name__ == "__main__":
             print(item)
             path = widget.path_from_item(item)
             print(path)
-            print(widget.item_to_object(item))
+            print(widget.object_from_item(item))
             if path:
                 solved_item = widget.item_from_path(path, widget.topLevelItem(0))
                 print(solved_item)
-                print(widget.item_to_object(item))
+                print(widget.object_from_item(item))
                 print(widget.path_from_item(solved_item))
 
     widget.itemSelectionChanged.connect(debug)

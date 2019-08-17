@@ -43,6 +43,15 @@ class ObjectDelegate(QtWidgets.QStyledItemDelegate):
 
         super(ObjectDelegate, self).setModelData(editor, model, index)
         model.setData(index, value, TreeObjectDisplay.ValueRole)
+        
+    def paint(self, painter, option, index):
+        tree_widget = self.parent()
+        item = tree_widget.itemFromIndex(index)
+        if tree_widget.is_container_item(item):
+            paired = tree_widget.paired_container_item(item)
+            if paired.isSelected():
+                option.state |= QtWidgets.QStyle.State_Selected
+        super(ObjectDelegate, self).paint(painter, option, index)
 
 
 class TreeObjectDisplay(QtWidgets.QTreeWidget):
@@ -58,9 +67,10 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
     datatype (bool, float, int, string). None types are treated as strings.
     """
 
-    ContainerItemType = QtWidgets.QTreeWidgetItem.UserType + 1
-    ValueItemType = QtWidgets.QTreeWidgetItem.UserType + 2
-    KeyItemType = QtWidgets.QTreeWidgetItem.UserType + 3
+    ContainerOpenItemType = QtWidgets.QTreeWidgetItem.UserType + 1
+    ContainerCloseItemType = QtWidgets.QTreeWidgetItem.UserType + 2
+    ValueItemType = QtWidgets.QTreeWidgetItem.UserType + 3
+    KeyItemType = QtWidgets.QTreeWidgetItem.UserType + 4
 
     ValueRole = QtCore.Qt.UserRole + 1
     GetItemRole = QtCore.Qt.UserRole + 2
@@ -127,6 +137,8 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
         self._editable = editable
         self.setItemDelegate(ObjectDelegate(self))
 
+        self.currentItemChanged.connect(self.on_item_selection_changed)
+
     @contextlib.contextmanager
     def container_creation(self, container_type, parent=None, previous=None):
         """
@@ -147,7 +159,7 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
             start_symbol,
             parent=parent,
             previous=previous,
-            item_type=self.ContainerItemType,
+            item_type=self.ContainerOpenItemType,
         )
         start_item.setData(0, self.ContainerTypeRole, container_type)
         items = [start_item]
@@ -158,7 +170,7 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
             end_symbol,
             parent=parent,
             previous=start_item,
-            item_type=self.ContainerItemType,
+            item_type=self.ContainerCloseItemType,
         )
         end_item.setData(0, self.ContainerTypeRole, container_type)
         items.append(end_item)
@@ -294,7 +306,7 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
             bool: Whether or not the item represents a container item rather
                 than an actual value
         """
-        return item.type() == self.ContainerItemType
+        return item.type() in (self.ContainerOpenItemType, self.ContainerCloseItemType)
 
     def is_editable(self):
         """
@@ -412,6 +424,33 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
             for row in range(self.topLevelItemCount())
         ]
 
+    def paired_container_item(self, item):
+        """
+        Raises:
+            TypeError: If given item is not a container item
+
+        Args:
+            item (QtWidgets.QTreeWidgetItem):
+
+        Returns:
+            QtWidgets.QTreeWidgetItem: Paired container open/close item
+        """
+        if not self.is_container_item(item):
+            raise TypeError("Item is not a container item: {}".format(item))
+
+        parent = item.parent()
+        if parent is None:
+            parent = self.invisibleRootItem()
+
+        row = parent.indexOfChild(item)
+        if item.type() == TreeObjectDisplay.ContainerOpenItemType:
+            row += 1
+        else:
+            row -= 1
+
+        sibling_item = parent.child(row)
+        return sibling_item
+
     def path_from_item(self, item):
         """
         Examples:
@@ -458,6 +497,26 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
                 item.setFlags(item_flags)
 
             iterator += 1
+
+    def on_item_selection_changed(self, current, previous):
+        """
+        Refreshes paired container items simultaneously to allow for selection
+        highlighting
+
+        Args:
+            current (QtWidgets.QTreeWidgetItem):
+            previous (QtWidgets.QTreeWidgetItem):
+        """
+        for item in (current, previous):
+            if item is None or not self.is_container_item(item):
+                continue
+
+            paired = self.paired_container_item(item)
+            if paired is None:
+                continue
+
+            index = self.indexFromItem(paired)
+            self.model().dataChanged.emit(index, index)
 
 
 if __name__ == "__main__":

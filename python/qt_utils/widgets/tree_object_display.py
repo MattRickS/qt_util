@@ -273,7 +273,25 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
 
         return self.item_from_path(path, value_item)
 
-    def item_to_object(self, item):
+    def item_to_object(self, item, key_to_value=True):
+        """
+        Walks through an item's hierarchy and constructs the python object
+        represented beneath it. Warning: Key items will return just the key
+        value
+
+        Args:
+            item (QtWidgets.QTreeWidgetItem): Item to begin converting from
+            key_to_value (:obj:`bool`, optional): If True (default), items
+                representing a dictionary key will return their value from the
+                dictionary. If False, they will return just the key's value.
+
+        Returns:
+            object: Object recursively constructed from the item and it's
+                descendants.
+        """
+        if key_to_value and item.type() == self.KeyItemType:
+            item = item.child(0)
+
         if self.is_container_type(item):
             container_type = item.data(0, self.ContainerTypeRole)
             if container_type == dict:
@@ -299,6 +317,10 @@ class TreeObjectDisplay(QtWidgets.QTreeWidget):
         return data
 
     def objects(self):
+        """
+        Returns:
+            list[object]: List of all top level items converted to objects
+        """
         return [
             self.item_to_object(self.topLevelItem(row))
             for row in range(self.topLevelItemCount())

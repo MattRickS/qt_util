@@ -23,7 +23,7 @@ class Worker(QtCore.QRunnable):
             result = self.func(*self.args, **self.kwargs)
         except Exception:
             error = traceback.format_exc()
-            self.failed.emit(error)
+            self.signals.failed.emit(error)
         else:
             self.signals.completed.emit(result)
 
@@ -110,9 +110,7 @@ class WorkerItemModel(QtCore.QAbstractItemModel):
 
     def _connect_items(self, worker_items):
         for worker_item in worker_items:
-            refresh_func = (
-                lambda *args, witem=worker_item: self.refresh_row(witem)
-            )
+            refresh_func = lambda *args, witem=worker_item: self.refresh_row(witem)
             worker_item.worker.signals.failed.connect(refresh_func)
             worker_item.worker.signals.completed.connect(refresh_func)
             worker_item.worker.signals.progressUpdate.connect(refresh_func)
@@ -288,6 +286,7 @@ class MultiProcessView(QtWidgets.QTableView):
     def __init__(self, parent=None):
         # type: (QtWidgets.QWidget) -> None
         super(MultiProcessView, self).__init__(parent)
+        # TODO: Stretch message instead of result
         self.horizontalHeader().setStretchLastSection(True)
         self.setModel(WorkerItemModel())
         self.setItemDelegateForColumn(
@@ -321,6 +320,10 @@ if __name__ == "__main__":
             progress = int((i / float(count)) * 100)
             callback("Doing {}".format(i), progress)
             time.sleep(random.random() * 2)
+
+            if random.random() < 0.1:
+                raise ValueError("Something is wrong")
+
         return random.randint(0, 3)
 
     items = []

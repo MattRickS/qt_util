@@ -12,7 +12,7 @@ class WorkerSignals(QtCore.QObject):
 
     completed = QtCore.Signal(object)
     failed = QtCore.Signal(str)
-    progressUpdate = QtCore.Signal(str, int)
+    progressUpdated = QtCore.Signal(str, int)
 
 
 class Worker(QtCore.QRunnable):
@@ -163,13 +163,13 @@ class WorkerItem(QtCore.QObject):
         if self._worker is not None:
             self._worker.signals.completed.disconnect(self.complete)
             self._worker.signals.failed.disconnect(self.fail)
-            self._worker.signals.progressUpdate.disconnect(self.update)
+            self._worker.signals.progressUpdated.disconnect(self.update)
 
         self._worker = worker
         self._worker.setAutoDelete(False)
         self._worker.signals.completed.connect(self.complete)
         self._worker.signals.failed.connect(self.fail)
-        self._worker.signals.progressUpdate.connect(self.update)
+        self._worker.signals.progressUpdated.connect(self.update)
 
     def start(self):
         """ Starts the Worker in a thread """
@@ -491,7 +491,7 @@ if __name__ == "__main__":
     items = []
     for i in range(4):
         worker = Worker(func)
-        worker.kwargs["callback"] = worker.signals.progressUpdate.emit
+        worker.kwargs["callback"] = worker.signals.progressUpdated.emit
         item = WorkerItem(worker)
         items.append(item)
 

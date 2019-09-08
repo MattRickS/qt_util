@@ -376,10 +376,10 @@ class WorkerItemProgressDelegate(QtWidgets.QStyledItemDelegate):
             super(WorkerItemProgressDelegate, self).paint(painter, option, index)
 
 
-class MultiProcessView(QtWidgets.QTableView):
+class WorkerItemView(QtWidgets.QTableView):
     def __init__(self, parent=None):
         # type: (QtWidgets.QWidget) -> None
-        super(MultiProcessView, self).__init__(parent)
+        super(WorkerItemView, self).__init__(parent)
         self.horizontalHeader().setStretchLastSection(True)
         self.setModel(WorkerItemModel())
         self.setItemDelegateForColumn(
@@ -456,7 +456,7 @@ if __name__ == "__main__":
         item.worker.kwargs["callback"] = item.worker.signals.progressUpdate.emit
         items.append(item)
 
-    view = MultiProcessView()
+    view = WorkerItemView()
     view.set_items(items)
     view.show()
 

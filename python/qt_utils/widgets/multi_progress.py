@@ -28,13 +28,19 @@ class Worker(QtCore.QRunnable):
             self.signals.completed.emit(result)
 
 
+class WorkerItemState(object):
+    Idle = 0
+    Running = 1
+    Complete = 2
+    Failed = 3
+
+
 class WorkerItem(object):
     ThreadPool = QtCore.QThreadPool()
 
     def __init__(self, func, *args, **kwargs):
         # type: (callable) -> None
-        self.has_error = False
-        self.is_running = False
+        self.state = WorkerItemState.Idle
         self.max_progress = 100
         self.message = "Idle"
         self.progress = 0
@@ -59,16 +65,14 @@ class WorkerItem(object):
 
     def complete(self, result):
         # type: (object) -> None
-        self.has_error = False
-        self.is_running = False
+        self.state = WorkerItemState.Complete
         self.message = "Result: {}".format(result)
         self.progress = self.max_progress
         self.result = result
 
     def fail(self, error):
         # type: (str) -> None
-        self.has_error = True
-        self.is_running = False
+        self.state = WorkerItemState.Failed
         self.message = error
         self.progress = self.max_progress
 
@@ -78,7 +82,7 @@ class WorkerItem(object):
 
     def start(self):
         self.ThreadPool.start(self.worker)
-        self.is_running = True
+        self.state = WorkerItemState.Running
 
     def update(self, message, progress):
         # type: (str, int) -> None
@@ -189,11 +193,13 @@ class WorkerItemModel(QtCore.QAbstractItemModel):
             if index.column() == WorkerItemColumn.Name:
                 return worker_item.name
             elif index.column() == WorkerItemColumn.Progress:
-                if worker_item.has_error:
+                if worker_item.state == WorkerItemState.Idle:
+                    return "Idle"
+                if worker_item.state == WorkerItemState.Failed:
                     return "Failed"
-                elif worker_item.is_running:
+                elif worker_item.state == WorkerItemState.Running:
                     return "{:3d}%".format(int(worker_item.percentage() * 100))
-                else:
+                elif worker_item.state == WorkerItemState.Complete:
                     return "Complete"
             elif index.column() == WorkerItemColumn.Message:
                 return worker_item.message
@@ -211,11 +217,11 @@ class WorkerItemModel(QtCore.QAbstractItemModel):
             role == QtCore.Qt.BackgroundRole
             and index.column() == WorkerItemColumn.Progress
         ):
-            if worker_item.has_error:
+            if worker_item.state == WorkerItemState.Failed:
                 return QtGui.QColor(ProgressColour.Failed)
-            elif worker_item.is_running:
+            elif worker_item.state == WorkerItemState.Running:
                 return QtGui.QColor(ProgressColour.Running)
-            else:
+            elif worker_item.state == WorkerItemState.Complete:
                 return QtGui.QColor(ProgressColour.Completed)
 
     def flags(self, index):
@@ -263,9 +269,7 @@ class ProgressBarDelegate(QtWidgets.QStyledItemDelegate):
             return
 
         worker_item = index.internalPointer()
-        if worker_item.has_error or not worker_item.is_running:
-            super(ProgressBarDelegate, self).paint(painter, option, index)
-        else:
+        if worker_item.state == WorkerItemState.Running:
             progress_opt = QtWidgets.QStyleOptionProgressBar()
             progress_opt.rect = option.rect
             progress_opt.text = index.data(QtCore.Qt.DisplayRole)
@@ -283,6 +287,8 @@ class ProgressBarDelegate(QtWidgets.QStyledItemDelegate):
             QtWidgets.QApplication.style().drawControl(
                 QtWidgets.QStyle.CE_ProgressBar, progress_opt, painter
             )
+        else:
+            super(ProgressBarDelegate, self).paint(painter, option, index)
 
 
 class MultiProcessView(QtWidgets.QTableView):

@@ -5,12 +5,19 @@ from PySide2 import QtCore, QtGui, QtWidgets
 
 
 class WorkerSignals(QtCore.QObject):
+    """
+    QRunnable does not inherit from QObject so cannot define signals.
+    This class acts as a simple container for the required signals.
+    """
+
     completed = QtCore.Signal(object)
     failed = QtCore.Signal(str)
     progressUpdate = QtCore.Signal(str, int)
 
 
 class Worker(QtCore.QRunnable):
+    """ Simple threadable function wrapper """
+
     def __init__(self, func, args, kwargs):
         super(Worker, self).__init__()
         self.signals = WorkerSignals()
@@ -29,21 +36,50 @@ class Worker(QtCore.QRunnable):
 
 
 class WorkerItemState(object):
+    """ Running state of a WorkerItem """
+
     Idle = 0
     Running = 1
     Complete = 2
     Failed = 3
 
 
+class WorkerItemColumn(object):
+    """ Column names and indexes for WorkerItems in the WorkerItemModel """
+
+    NAMES = ["name", "progress", "message"]
+
+    Name = 0
+    Progress = 1
+    Message = 2
+
+
+class WorkerProgressColour(object):
+    """ Colours to use for the WorkerItem progress column """
+
+    Completed = "#00FF00"
+    Failed = "#FF0000"
+    Running = "#0000FF"
+
+
 class WorkerItem(object):
+    """ Wrapper for displaying a Worker in the WorkerItemModel """
+
     ThreadPool = QtCore.QThreadPool()
 
     def __init__(self, func, *args, **kwargs):
-        # type: (callable) -> None
-        self.state = WorkerItemState.Idle
+        """
+        Args:
+            func (callable): Any callable object
+            *args: Positional arguments to pass to the callable
+            **kwargs: Keyword arguments to pass to the callable
+        """
+        self.min_progress = 0
         self.max_progress = 100
+        self.progress = self.min_progress
+
+        self.state = WorkerItemState.Idle
         self.message = "Idle"
-        self.progress = 0
         self.result = None
 
         self.worker = Worker(func, args, kwargs)
@@ -60,92 +96,130 @@ class WorkerItem(object):
 
     @property
     def name(self):
-        # type: () -> str
+        """
+        Returns:
+            str: Name to display for the Worker
+        """
         return self.worker.func.__name__
 
     def complete(self, result):
-        # type: (object) -> None
+        """
+        Marks the item as completed and stores the result. Message is updated to
+        display the result
+
+        Args:
+            result (object): Result of the Worker
+        """
         self.state = WorkerItemState.Complete
         self.message = "Result: {}".format(result)
         self.progress = self.max_progress
         self.result = result
 
     def fail(self, error):
-        # type: (str) -> None
+        """
+        Marks the item as failed and updates the current message
+
+        Args:
+            error (str): Error message
+        """
         self.state = WorkerItemState.Failed
         self.message = error
-        self.progress = self.max_progress
 
     def percentage(self):
-        # type: () -> float
-        return self.progress / float(self.max_progress)
+        """
+        Returns:
+            float: Percentage of progress between 0 and 1
+        """
+        return (self.progress - self.min_progress) / float(
+            self.max_progress - self.min_progress
+        )
 
     def start(self):
+        """ Starts the Worker in a thread """
         self.ThreadPool.start(self.worker)
         self.state = WorkerItemState.Running
 
     def update(self, message, progress):
-        # type: (str, int) -> None
+        """
+        Args:
+            message (str): Process update message
+            progress (int): Progress value to set. Will be clamped between min
+                and max
+        """
         self.message = message
-        self.progress = max(0, min(progress, self.max_progress))
-
-
-class WorkerItemColumn(object):
-    NAMES = ["name", "progress", "message"]
-
-    Name = 0
-    Progress = 1
-    Message = 2
-
-
-class ProgressColour(object):
-    Completed = "#00FF00"
-    Failed = "#FF0000"
-    Running = "#0000FF"
+        self.progress = max(self.min_progress, min(progress, self.max_progress))
 
 
 class WorkerItemModel(QtCore.QAbstractItemModel):
     def __init__(self, worker_items=None, parent=None):
-        # type: (list[WorkerItem], QtWidgets.QWidget) -> None
+        """
+        Keyword Args:
+            worker_items (list[WorkerItems]):
+            parent (QtCore.QObject):
+        """
         super(WorkerItemModel, self).__init__(parent)
+        self._connections = {}
+
         self._worker_items = worker_items or []
         self._connect_items(self._worker_items)
 
     def _connect_items(self, worker_items):
         for worker_item in worker_items:
+            # Track the temporary function so that it can be disconnected when
+            # removing items.
             refresh_func = lambda *args, witem=worker_item: self.refresh_item(witem)
+            self._connections[worker_item] = refresh_func
             worker_item.worker.signals.failed.connect(refresh_func)
             worker_item.worker.signals.completed.connect(refresh_func)
             worker_item.worker.signals.progressUpdate.connect(refresh_func)
 
     def _disconnect_items(self, worker_items):
         for worker_item in worker_items:
-            # TODO: How to disconnect then the methods are lambda...?
-            worker_item.worker.signals.failed.disconnect(self.refresh_item)
-            worker_item.worker.signals.completed.disconnect(self.refresh_item)
-            worker_item.worker.signals.progressUpdate.disconnect(self.refresh_item)
+            func = self._connections.pop(worker_item)
+            worker_item.worker.signals.failed.disconnect(func)
+            worker_item.worker.signals.completed.disconnect(func)
+            worker_item.worker.signals.progressUpdate.disconnect(func)
 
-    def add_items(self, worker_items, index=None, parent=QtCore.QModelIndex()):
-        # type: (list[WorkerItem], int, QtCore.QModelIndex) -> None
-        start = self.rowCount() if index is None else index
+    def add_items(self, worker_items, start_index=None):
+        """
+        Args:
+            worker_items (list[WorkerItem]): List of worker items to add
+            start_index (:obj:`int`, optional): Index to add the items at. Acts
+                as an insert operation if given, or an append operation if not
+        """
+        start = self.rowCount() if start_index is None else start_index
         num = len(worker_items)
+        parent = QtCore.QModelIndex()
+
+        # Trigger the correct signals
         self.beginInsertRows(parent, start, start + num)
-        self.insertRows(start, num, parent)
         self._worker_items = (
             self._worker_items[:start] + worker_items + self._worker_items[start:]
         )
         self._connect_items(worker_items)
         self.endInsertRows()
 
-    def index_from_item(self, worker_item):
-        # type: (WorkerItem) -> QtCore.QModelIndex
+    def index_from_item(self, worker_item, column=0):
+        """
+        Args:
+            worker_item (WorkerItem): Item to retrieve the index for
+            column (:obj:`int`, optional): Column to get the index for, defaults
+                to the first column
+
+        Returns:
+            QtCore.QModelIndex: index for the item
+        """
         for row, item in enumerate(self._worker_items):
             if item == worker_item:
-                return self.index(row, 0)
+                return self.index(row, column)
         return QtCore.QModelIndex()
 
     def refresh_item(self, worker_item):
-        # type: (WorkerItem) -> None
+        """
+        Args:
+            worker_item (WorkerItem): Emits dataChanged for the row's indexes
+                belonging to the given item
+        """
         index = self.index_from_item(worker_item)
         if not index.isValid():
             raise ValueError("Item is not part of the model: {}".format(worker_item))
@@ -154,8 +228,12 @@ class WorkerItemModel(QtCore.QAbstractItemModel):
         end = index.sibling(index.row(), self.columnCount(index.parent()))
         self.dataChanged.emit(start, end)
 
-    def remove_items(self, worker_items, parent=QtCore.QModelIndex()):
-        # type: (list[WorkerItem], QtCore.QModelIndex) -> None
+    def remove_items(self, worker_items):
+        """
+        Args:
+            worker_items (list[WorkerItem]): List of worker items to remove
+        """
+        parent = QtCore.QModelIndex()
         # Guarantees order, avoids errors for invalid entities (but won't give warning)
         indexes = [idx for idx, e in enumerate(self._worker_items) if e in worker_items]
         # Remove in reversed order to prevent modifying indices during loop
@@ -173,7 +251,12 @@ class WorkerItemModel(QtCore.QAbstractItemModel):
             self.endRemoveRows()
 
     def set_items(self, worker_items):
-        # type: (list[WorkerItem]) -> None
+        """
+        Args:
+            worker_items (list[WorkerItem]): List of worker items to populate
+                the model with. Will clear all existing items. Set with an empty
+                list to clear the model.
+        """
         self.beginResetModel()
         self._disconnect_items(self._worker_items)
         self._worker_items = worker_items or []
@@ -218,11 +301,11 @@ class WorkerItemModel(QtCore.QAbstractItemModel):
             and index.column() == WorkerItemColumn.Progress
         ):
             if worker_item.state == WorkerItemState.Failed:
-                return QtGui.QColor(ProgressColour.Failed)
+                return QtGui.QColor(WorkerProgressColour.Failed)
             elif worker_item.state == WorkerItemState.Running:
-                return QtGui.QColor(ProgressColour.Running)
+                return QtGui.QColor(WorkerProgressColour.Running)
             elif worker_item.state == WorkerItemState.Complete:
-                return QtGui.QColor(ProgressColour.Completed)
+                return QtGui.QColor(WorkerProgressColour.Completed)
 
     def flags(self, index):
         # type: (QtCore.QModelIndex) -> QtCore.Qt.ItemFlags
@@ -262,7 +345,9 @@ class WorkerItemModel(QtCore.QAbstractItemModel):
         return False
 
 
-class ProgressBarDelegate(QtWidgets.QStyledItemDelegate):
+class WorkerItemProgressDelegate(QtWidgets.QStyledItemDelegate):
+    """ Delegate for drawing the progress bar for a WorkerItem """
+
     def paint(self, painter, option, index):
         # type: (QtGui.QPainter, QtWidgets.QStyleOptionViewItem, QtCore.QModelIndex) -> None
         if not index.isValid():
@@ -288,7 +373,7 @@ class ProgressBarDelegate(QtWidgets.QStyledItemDelegate):
                 QtWidgets.QStyle.CE_ProgressBar, progress_opt, painter
             )
         else:
-            super(ProgressBarDelegate, self).paint(painter, option, index)
+            super(WorkerItemProgressDelegate, self).paint(painter, option, index)
 
 
 class MultiProcessView(QtWidgets.QTableView):
@@ -298,19 +383,50 @@ class MultiProcessView(QtWidgets.QTableView):
         self.horizontalHeader().setStretchLastSection(True)
         self.setModel(WorkerItemModel())
         self.setItemDelegateForColumn(
-            WorkerItemColumn.Progress, ProgressBarDelegate(self)
+            WorkerItemColumn.Progress, WorkerItemProgressDelegate(self)
         )
 
     def add_items(self, items):
-        # type: (list[WorkerItem]) -> None
+        """
+        Args:
+            items (list[WorkerItem]): List of worker items to add
+        """
         self.model().add_items(items)
 
+    def count(self):
+        """
+        Returns:
+            int: Number of items in the model/view
+        """
+        return self.model().rowCount()
+
+    def item(self, row):
+        """
+        Args:
+            row (int): Row to get the item for
+
+        Returns:
+            WorkerItem: Item in the row
+        """
+        index = self.model().index(row, 0)
+        if not index.isValid():
+            raise ValueError("Invalid row: {}".format(row))
+        return index.internalPointer()
+
     def remove_items(self, items):
-        # type: (list[WorkerItem]) -> None
+        """
+        Args:
+            items (list[WorkerItem]): List of worker items to remove
+        """
         self.model().remove_items(items)
 
     def set_items(self, items):
-        # type: (list[WorkerItem]) -> None
+        """
+        Args:
+            items (list[WorkerItem]): List of worker items to populate the
+                model/view with. Will clear all existing items. Set with an
+                empty list to clear the model/view.
+        """
         self.model().set_items(items)
 
 
@@ -335,7 +451,7 @@ if __name__ == "__main__":
         return random.randint(0, 3)
 
     items = []
-    for i in range(3):
+    for i in range(4):
         item = WorkerItem(func)
         item.worker.kwargs["callback"] = item.worker.signals.progressUpdate.emit
         items.append(item)
@@ -344,8 +460,16 @@ if __name__ == "__main__":
     view.set_items(items)
     view.show()
 
-    for item in items:
-        item.start()
+    view.remove_items(items[:1])
+
+    def start_all():
+        for row in range(view.count()):
+            item = view.item(row)
+            item.start()
+
+    btn = QtWidgets.QPushButton("Start")
+    btn.clicked.connect(start_all)
+    btn.show()
 
     app.exec_()
     sys.exit()

@@ -61,7 +61,7 @@ class WorkerItem(object):
         # type: (object) -> None
         self.has_error = False
         self.is_running = False
-        self.message = "Complete!"
+        self.message = "Result: {}".format(result)
         self.progress = self.max_progress
         self.result = result
 
@@ -87,12 +87,11 @@ class WorkerItem(object):
 
 
 class WorkerItemColumn(object):
-    NAMES = ["name", "progress", "message", "result"]
+    NAMES = ["name", "progress", "message"]
 
     Name = 0
     Progress = 1
     Message = 2
-    Result = 3
 
 
 class ProgressColour(object):
@@ -110,7 +109,7 @@ class WorkerItemModel(QtCore.QAbstractItemModel):
 
     def _connect_items(self, worker_items):
         for worker_item in worker_items:
-            refresh_func = lambda *args, witem=worker_item: self.refresh_row(witem)
+            refresh_func = lambda *args, witem=worker_item: self.refresh_item(witem)
             worker_item.worker.signals.failed.connect(refresh_func)
             worker_item.worker.signals.completed.connect(refresh_func)
             worker_item.worker.signals.progressUpdate.connect(refresh_func)
@@ -118,9 +117,9 @@ class WorkerItemModel(QtCore.QAbstractItemModel):
     def _disconnect_items(self, worker_items):
         for worker_item in worker_items:
             # TODO: How to disconnect then the methods are lambda...?
-            worker_item.worker.signals.failed.disconnect(self.refresh_row)
-            worker_item.worker.signals.completed.disconnect(self.refresh_row)
-            worker_item.worker.signals.progressUpdate.disconnect(self.refresh_row)
+            worker_item.worker.signals.failed.disconnect(self.refresh_item)
+            worker_item.worker.signals.completed.disconnect(self.refresh_item)
+            worker_item.worker.signals.progressUpdate.disconnect(self.refresh_item)
 
     def add_items(self, worker_items, index=None, parent=QtCore.QModelIndex()):
         # type: (list[WorkerItem], int, QtCore.QModelIndex) -> None
@@ -141,7 +140,7 @@ class WorkerItemModel(QtCore.QAbstractItemModel):
                 return self.index(row, 0)
         return QtCore.QModelIndex()
 
-    def refresh_row(self, worker_item):
+    def refresh_item(self, worker_item):
         # type: (WorkerItem) -> None
         index = self.index_from_item(worker_item)
         if not index.isValid():
@@ -190,11 +189,14 @@ class WorkerItemModel(QtCore.QAbstractItemModel):
             if index.column() == WorkerItemColumn.Name:
                 return worker_item.name
             elif index.column() == WorkerItemColumn.Progress:
-                return worker_item.progress
+                if worker_item.has_error:
+                    return "Failed"
+                elif worker_item.is_running:
+                    return "{:3d}%".format(int(worker_item.percentage() * 100))
+                else:
+                    return "Complete"
             elif index.column() == WorkerItemColumn.Message:
                 return worker_item.message
-            elif index.column() == WorkerItemColumn.Result:
-                return str(worker_item.result)
 
         if role == QtCore.Qt.ToolTipRole:
             return worker_item.message
@@ -203,7 +205,7 @@ class WorkerItemModel(QtCore.QAbstractItemModel):
             role == QtCore.Qt.TextAlignmentRole
             and index.column() == WorkerItemColumn.Progress
         ):
-            return QtCore.Qt.AlignLeft
+            return QtCore.Qt.AlignCenter
 
         if (
             role == QtCore.Qt.BackgroundRole
@@ -214,7 +216,7 @@ class WorkerItemModel(QtCore.QAbstractItemModel):
             elif worker_item.is_running:
                 return QtGui.QColor(ProgressColour.Running)
             else:
-                return QtGui.QColor(ProgressColour.Running)
+                return QtGui.QColor(ProgressColour.Completed)
 
     def flags(self, index):
         # type: (QtCore.QModelIndex) -> QtCore.Qt.ItemFlags
@@ -261,32 +263,32 @@ class ProgressBarDelegate(QtWidgets.QStyledItemDelegate):
             return
 
         worker_item = index.internalPointer()
+        if worker_item.has_error or not worker_item.is_running:
+            super(ProgressBarDelegate, self).paint(painter, option, index)
+        else:
+            progress_opt = QtWidgets.QStyleOptionProgressBar()
+            progress_opt.rect = option.rect
+            progress_opt.text = index.data(QtCore.Qt.DisplayRole)
+            progress_opt.textVisible = True
+            progress_opt.textAlignment = option.displayAlignment
+            progress_opt.minimum = 0
+            progress_opt.maximum = worker_item.max_progress
+            progress_opt.progress = worker_item.progress
 
-        progress_opt = QtWidgets.QStyleOptionProgressBar()
-        progress_opt.rect = option.rect
-        progress_opt.text = option.text
-        progress_opt.textVisible = True
-        progress_opt.textAlignment = option.displayAlignment
-        progress_opt.minimum = 0
-        progress_opt.maximum = worker_item.max_progress
-        progress_opt.progress = worker_item.progress
+            bg_colour = index.data(QtCore.Qt.BackgroundRole)
+            progress_opt.palette.setColor(QtGui.QPalette.Base, bg_colour)
+            progress_opt.palette.setColor(QtGui.QPalette.Foreground, bg_colour)
+            progress_opt.palette.setColor(QtGui.QPalette.Highlight, bg_colour)
 
-        # bg_colour = index.data(QtCore.Qt.BackgroundRole)
-        # print(bg_colour)
-        # progress_opt.palette.setColor(QtGui.QPalette.Base, bg_colour)
-        # progress_opt.palette.setColor(QtGui.QPalette.Foreground, bg_colour)
-        # progress_opt.palette.setColor(QtGui.QPalette.Highlight, bg_colour)
-
-        QtWidgets.QApplication.style().drawControl(
-            QtWidgets.QStyle.CE_ProgressBar, progress_opt, painter
-        )
+            QtWidgets.QApplication.style().drawControl(
+                QtWidgets.QStyle.CE_ProgressBar, progress_opt, painter
+            )
 
 
 class MultiProcessView(QtWidgets.QTableView):
     def __init__(self, parent=None):
         # type: (QtWidgets.QWidget) -> None
         super(MultiProcessView, self).__init__(parent)
-        # TODO: Stretch message instead of result
         self.horizontalHeader().setStretchLastSection(True)
         self.setModel(WorkerItemModel())
         self.setItemDelegateForColumn(

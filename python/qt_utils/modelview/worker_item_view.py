@@ -18,7 +18,13 @@ class WorkerSignals(QtCore.QObject):
 class Worker(QtCore.QRunnable):
     """ Simple threadable function wrapper """
 
-    def __init__(self, func, args, kwargs):
+    def __init__(self, func, *args, **kwargs):
+        """
+        Args:
+            func (callable): Any callable object
+            *args: Positional arguments to pass to the callable
+            **kwargs: Keyword arguments to pass to the callable
+        """
         super(Worker, self).__init__()
         self.signals = WorkerSignals()
         self.func = func
@@ -62,18 +68,27 @@ class WorkerProgressColour(object):
     Running = "#0000FF"
 
 
-class WorkerItem(object):
-    """ Wrapper for displaying a Worker in the WorkerItemModel """
+class WorkerItem(QtCore.QObject):
+    """
+    Wrapper for displaying a Worker in the WorkerItemModel. If using a custom
+    Worker, set_worker should be implemented to connect/disconnect the complete,
+    fail, and update methods.
+    """
+
+    workerCompleted = QtCore.Signal(object)
+    workerFailed = QtCore.Signal(str)
+    workerUpdated = QtCore.Signal(str, int)
 
     ThreadPool = QtCore.QThreadPool()
 
-    def __init__(self, func, *args, **kwargs):
+    def __init__(self, worker):
         """
         Args:
-            func (callable): Any callable object
-            *args: Positional arguments to pass to the callable
-            **kwargs: Keyword arguments to pass to the callable
+            worker (Worker): Worker runnable the item represents
         """
+        super(WorkerItem, self).__init__()
+        self._worker = None
+
         self.min_progress = 0
         self.max_progress = 100
         self.progress = self.min_progress
@@ -82,11 +97,7 @@ class WorkerItem(object):
         self.message = "Idle"
         self.result = None
 
-        self.worker = Worker(func, args, kwargs)
-        self.worker.setAutoDelete(False)
-        self.worker.signals.completed.connect(self.complete)
-        self.worker.signals.failed.connect(self.fail)
-        self.worker.signals.progressUpdate.connect(self.update)
+        self.set_worker(worker)
 
     def __repr__(self):
         return (
@@ -102,6 +113,14 @@ class WorkerItem(object):
         """
         return self.worker.func.__name__
 
+    @property
+    def worker(self):
+        """
+        Returns:
+            Worker: Worker runnable the item represents
+        """
+        return self._worker
+
     def complete(self, result):
         """
         Marks the item as completed and stores the result. Message is updated to
@@ -114,6 +133,7 @@ class WorkerItem(object):
         self.message = "Result: {}".format(result)
         self.progress = self.max_progress
         self.result = result
+        self.workerCompleted.emit(result)
 
     def fail(self, error):
         """
@@ -124,6 +144,7 @@ class WorkerItem(object):
         """
         self.state = WorkerItemState.Failed
         self.message = error
+        self.workerFailed.emit(error)
 
     def percentage(self):
         """
@@ -134,9 +155,25 @@ class WorkerItem(object):
             self.max_progress - self.min_progress
         )
 
+    def set_worker(self, worker):
+        """
+        Args:
+            worker (Worker): Worker to set on the item.
+        """
+        if self._worker is not None:
+            self._worker.signals.completed.disconnect(self.complete)
+            self._worker.signals.failed.disconnect(self.fail)
+            self._worker.signals.progressUpdate.disconnect(self.update)
+
+        self._worker = worker
+        self._worker.setAutoDelete(False)
+        self._worker.signals.completed.connect(self.complete)
+        self._worker.signals.failed.connect(self.fail)
+        self._worker.signals.progressUpdate.connect(self.update)
+
     def start(self):
         """ Starts the Worker in a thread """
-        self.ThreadPool.start(self.worker)
+        self.ThreadPool.start(self._worker)
         self.state = WorkerItemState.Running
 
     def update(self, message, progress):
@@ -148,6 +185,7 @@ class WorkerItem(object):
         """
         self.message = message
         self.progress = max(self.min_progress, min(progress, self.max_progress))
+        self.workerUpdated.emit(message, self.progress)
 
 
 class WorkerItemModel(QtCore.QAbstractItemModel):
@@ -169,16 +207,16 @@ class WorkerItemModel(QtCore.QAbstractItemModel):
             # removing items.
             refresh_func = lambda *args, witem=worker_item: self.refresh_item(witem)
             self._connections[worker_item] = refresh_func
-            worker_item.worker.signals.failed.connect(refresh_func)
-            worker_item.worker.signals.completed.connect(refresh_func)
-            worker_item.worker.signals.progressUpdate.connect(refresh_func)
+            worker_item.workerCompleted.connect(refresh_func)
+            worker_item.workerFailed.connect(refresh_func)
+            worker_item.workerUpdated.connect(refresh_func)
 
     def _disconnect_items(self, worker_items):
         for worker_item in worker_items:
             func = self._connections.pop(worker_item)
-            worker_item.worker.signals.failed.disconnect(func)
-            worker_item.worker.signals.completed.disconnect(func)
-            worker_item.worker.signals.progressUpdate.disconnect(func)
+            worker_item.workerCompleted.disconnect(func)
+            worker_item.workerFailed.disconnect(func)
+            worker_item.workerUpdated.disconnect(func)
 
     def add_items(self, worker_items, start_index=None):
         """
@@ -452,8 +490,9 @@ if __name__ == "__main__":
 
     items = []
     for i in range(4):
-        item = WorkerItem(func)
-        item.worker.kwargs["callback"] = item.worker.signals.progressUpdate.emit
+        worker = Worker(func)
+        worker.kwargs["callback"] = worker.signals.progressUpdate.emit
+        item = WorkerItem(worker)
         items.append(item)
 
     view = WorkerItemView()

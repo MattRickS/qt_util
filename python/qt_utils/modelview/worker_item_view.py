@@ -36,6 +36,9 @@ class Worker(QtCore.QRunnable):
             s=self
         )
 
+    def __str__(self):
+        return self.func.__name__
+
     def run(self):
         try:
             result = self.func(*self.args, **self.kwargs)
@@ -105,6 +108,9 @@ class WorkerItem(QtCore.QObject):
         self.set_worker(worker)
 
     def __repr__(self):
+        return "{s.__class__.__name__}({s._worker!r})".format(s=self)
+
+    def __str__(self):
         return "{s.__class__.__name__}({s._worker})".format(s=self)
 
     @property
@@ -456,6 +462,8 @@ class WorkerItemProgressDelegate(QtWidgets.QStyledItemDelegate):
 
 
 class WorkerItemView(QtWidgets.QTableView):
+    selectedItemsChanged = QtCore.Signal(object)
+
     def __init__(self, parent=None):
         # type: (QtWidgets.QWidget) -> None
         super(WorkerItemView, self).__init__(parent)
@@ -463,6 +471,14 @@ class WorkerItemView(QtWidgets.QTableView):
         self.setModel(WorkerItemModel())
         self.setItemDelegateForColumn(
             WorkerItemColumn.Progress, WorkerItemProgressDelegate(self)
+        )
+
+        # Note: Due to a bug in PySide2, trying to access a method on the
+        # selectionModel without keeping a reference to the selectionModel will
+        # cause a segfault
+        selection_model = self.selectionModel()
+        selection_model.selectionChanged.connect(
+            self.on_selection_model_selection_changed
         )
 
     def add_items(self, items):
@@ -499,6 +515,17 @@ class WorkerItemView(QtWidgets.QTableView):
         """
         self.model().remove_items(items)
 
+    def selected_items(self):
+        """
+        Returns:
+            list[WorkerItem]: List of selected WorkerItems
+        """
+        return list({
+            index.internalPointer()
+            for index in self.selectedIndexes()
+            if index.isValid()
+        })
+
     def set_items(self, items):
         """
         Args:
@@ -508,6 +535,9 @@ class WorkerItemView(QtWidgets.QTableView):
         """
         self.model().set_items(items)
 
+    def on_selection_model_selection_changed(self):
+        self.selectedItemsChanged.emit(self.selected_items())
+
 
 if __name__ == "__main__":
     import random
@@ -515,6 +545,9 @@ if __name__ == "__main__":
     import time
 
     app = QtWidgets.QApplication(sys.argv)
+
+    def debug(*args):
+        print(args)
 
     def func(callback=None):
         callback = callback or (lambda msg, value: None)
@@ -535,9 +568,9 @@ if __name__ == "__main__":
         worker.kwargs["callback"] = worker.signals.progressUpdated.emit
         item = WorkerItem(worker)
         items.append(item)
-        print(item)
 
     view = WorkerItemView()
+    view.selectedItemsChanged.connect(debug)
     view.set_items(items)
     view.show()
 

@@ -63,8 +63,8 @@ class WorkerItemColumn(object):
 class WorkerProgressColour(object):
     """ Colours to use for the WorkerItem progress column """
 
-    Completed = "#00FF00"
-    Failed = "#FF0000"
+    Completed = "#56BF21"
+    Failed = "#BF3821"
     Running = "#0000FF"
 
 
@@ -94,7 +94,7 @@ class WorkerItem(QtCore.QObject):
         self.progress = self.min_progress
 
         self.state = WorkerItemState.Idle
-        self.message = "Idle"
+        self.message = "-"
         self.result = None
 
         self.set_worker(worker)

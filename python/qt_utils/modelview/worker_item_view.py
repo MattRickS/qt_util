@@ -31,6 +31,11 @@ class Worker(QtCore.QRunnable):
         self.args = args
         self.kwargs = kwargs
 
+    def __repr__(self):
+        return "{s.__class__.__name__}({s.func!r}, *{s.args!r}, **{s.kwargs!r})".format(
+            s=self
+        )
+
     def run(self):
         try:
             result = self.func(*self.args, **self.kwargs)
@@ -91,19 +96,24 @@ class WorkerItem(QtCore.QObject):
 
         self.min_progress = 0
         self.max_progress = 100
-        self.progress = self.min_progress
+        self._progress = self.min_progress
 
-        self.state = WorkerItemState.Idle
-        self.message = "-"
-        self.result = None
+        self._message = "-"
+        self._result = None
+        self._state = WorkerItemState.Idle
 
         self.set_worker(worker)
 
     def __repr__(self):
-        return (
-            "{s.__class__.__name__}({s.name!r}, *{s.worker.args}, "
-            "**{s.worker.kwargs})"
-        ).format(s=self)
+        return "{s.__class__.__name__}({s._worker})".format(s=self)
+
+    @property
+    def message(self):
+        """
+        Returns:
+            str: Current progress description
+        """
+        return self._message
 
     @property
     def name(self):
@@ -112,6 +122,31 @@ class WorkerItem(QtCore.QObject):
             str: Name to display for the Worker
         """
         return self.worker.func.__name__
+
+    @property
+    def progress(self):
+        """
+        Returns:
+            int: Current progress value
+        """
+        return self._progress
+
+    @property
+    def result(self):
+        """
+        Returns:
+            object|None: Return value from the Worker once complete or None if
+                incomplete/failed
+        """
+        return self._result
+
+    @property
+    def state(self):
+        """
+        Returns:
+            int: WorkerItemState of the Worker, eg, WorkerItemState.Running
+        """
+        return self._state
 
     @property
     def worker(self):
@@ -129,10 +164,10 @@ class WorkerItem(QtCore.QObject):
         Args:
             result (object): Result of the Worker
         """
-        self.state = WorkerItemState.Complete
-        self.message = "Result: {}".format(result)
-        self.progress = self.max_progress
-        self.result = result
+        self._state = WorkerItemState.Complete
+        self._message = "Result: {}".format(result)
+        self._progress = self.max_progress
+        self._result = result
         self.workerCompleted.emit(result)
 
     def fail(self, error):
@@ -142,8 +177,8 @@ class WorkerItem(QtCore.QObject):
         Args:
             error (str): Error message
         """
-        self.state = WorkerItemState.Failed
-        self.message = error
+        self._state = WorkerItemState.Failed
+        self._message = error
         self.workerFailed.emit(error)
 
     def percentage(self):
@@ -151,12 +186,14 @@ class WorkerItem(QtCore.QObject):
         Returns:
             float: Percentage of progress between 0 and 1
         """
-        return (self.progress - self.min_progress) / float(
+        return (self._progress - self.min_progress) / float(
             self.max_progress - self.min_progress
         )
 
     def set_worker(self, worker):
         """
+        Replaces the Worker, resets the state to Idle
+
         Args:
             worker (Worker): Worker to set on the item.
         """
@@ -171,10 +208,14 @@ class WorkerItem(QtCore.QObject):
         self._worker.signals.failed.connect(self.fail)
         self._worker.signals.progressUpdated.connect(self.update)
 
+        self._state = WorkerItemState.Idle
+        self._message = "-"
+        self._result = None
+
     def start(self):
         """ Starts the Worker in a thread """
         self.ThreadPool.start(self._worker)
-        self.state = WorkerItemState.Running
+        self._state = WorkerItemState.Running
 
     def update(self, message, progress):
         """
@@ -183,9 +224,9 @@ class WorkerItem(QtCore.QObject):
             progress (int): Progress value to set. Will be clamped between min
                 and max
         """
-        self.message = message
-        self.progress = max(self.min_progress, min(progress, self.max_progress))
-        self.workerUpdated.emit(message, self.progress)
+        self._message = message
+        self._progress = max(self.min_progress, min(progress, self.max_progress))
+        self.workerUpdated.emit(message, self._progress)
 
 
 class WorkerItemModel(QtCore.QAbstractItemModel):
@@ -494,6 +535,7 @@ if __name__ == "__main__":
         worker.kwargs["callback"] = worker.signals.progressUpdated.emit
         item = WorkerItem(worker)
         items.append(item)
+        print(item)
 
     view = WorkerItemView()
     view.set_items(items)
